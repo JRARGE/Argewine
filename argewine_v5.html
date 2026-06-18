@@ -469,6 +469,15 @@ tr:last-child td{border-bottom:none}
           <input type="file" id="imp-f" accept=".json" style="display:none" onchange="importJSON(this.files[0])">
           <button class="btn danger" onclick="clearMonth()"><i class="ti ti-trash"></i> Borrar mes actual</button>
         </div>
+        <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
+          <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
+            Si solo el costo de productos quedó mal, limpialo y reimportá el CSV de costos. Envío y duties no se tocan.
+          </p>
+          <div class="btn-row">
+            <button class="btn danger" onclick="resetCostValues()"><i class="ti ti-eraser"></i> Limpiar costo de productos (mes actual)</button>
+            <button class="btn danger" onclick="resetAllCostValues()"><i class="ti ti-eraser"></i> Limpiar costo de productos (todos los meses)</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -706,40 +715,34 @@ function orderUSD(o){
   };
 }
 
-// One-time migration: convert old orders into the new ARS-native model.
-// Old versions were inconsistent: some stored product cost in ARS (big numbers),
-// some in USD. We detect by magnitude using the configured exchange rate.
+// Safe migration: rename legacy fields to the new ARS-native names.
+// Product cost legacy was stored in ARS → keep as-is.
+// Shipping/duties legacy were stored in USD (converted) → multiply back to ARS so they're preserved.
+// Each document load only rewrites its own field, so this runs once and keeps everything.
 function migrateData(){
-  if(S._migratedV9) return;
+  if(S._migratedV11) return;
   const fx = getFx() || 1450;
   Object.values(S.months||{}).forEach(month=>{
     (month.orders||[]).forEach(o=>{
-      // Skip if already migrated (new fields present)
-      if(o.productCostARS!==undefined || o.shippingARS!==undefined || o.dutiesARS!==undefined) return;
-
-      // PRODUCT COST: legacy stored either ARS (big, e.g. 28962) or USD (small, e.g. 199).
-      // Heuristic: if value > 5000 it's almost certainly ARS; otherwise treat as USD and convert up.
-      if(o.productCost!==undefined && o.productCost!=='' && o.productCost!=null){
-        const v = parseFloat(o.productCost)||0;
-        o.productCostARS = (v > 5000 ? v : v*fx).toFixed(2);
-      } else { o.productCostARS=''; }
-
-      // SHIPPING: legacy stored either ARS (big) or USD (small, e.g. 144).
-      if(o.shipping!==undefined && o.shipping!=='' && o.shipping!=null){
-        const v = parseFloat(o.shipping)||0;
-        o.shippingARS = (v > 5000 ? v : v*fx).toFixed(2);
-      } else { o.shippingARS=''; }
-
-      // DUTIES: same heuristic
-      if(o.duties!==undefined && o.duties!=='' && o.duties!=null){
-        const v = parseFloat(o.duties)||0;
-        o.dutiesARS = (v > 5000 ? v : v*fx).toFixed(2);
-      } else { o.dutiesARS=''; }
-
+      // Product cost: legacy ARS → keep. If new field missing but legacy exists, rename.
+      if(o.productCostARS===undefined){
+        o.productCostARS = (o.productCost!==undefined && o.productCost!=='' && o.productCost!=null)
+          ? (parseFloat(o.productCost)||0).toFixed(2) : '';
+      }
+      // Shipping: if new field missing, convert legacy USD value back to ARS to preserve it.
+      if(o.shippingARS===undefined){
+        o.shippingARS = (o.shipping!==undefined && o.shipping!=='' && o.shipping!=null)
+          ? ((parseFloat(o.shipping)||0)*fx).toFixed(2) : '';
+      }
+      // Duties: same as shipping.
+      if(o.dutiesARS===undefined){
+        o.dutiesARS = (o.duties!==undefined && o.duties!=='' && o.duties!=null)
+          ? ((parseFloat(o.duties)||0)*fx).toFixed(2) : '';
+      }
       delete o.productCost; delete o.shipping; delete o.duties;
     });
   });
-  S._migratedV9 = true;
+  S._migratedV11 = true;
   sv();
 }
 function sv(){ try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
@@ -1357,6 +1360,23 @@ function importJSON(file){
   r.readAsText(file);
 }
 function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; delete S.months[cur]; schedSave(); renderAll(); }
+
+function resetCostValues(){
+  if(!confirm('¿Limpiar SOLO el costo de productos del mes '+cur+'?\nEnvío, duties, ventas y todo lo demás se mantiene intacto. Después reimportá el CSV de costos.'))return;
+  const m=gm();
+  m.orders.forEach(o=>{ o.productCostARS=''; });
+  schedSave(); renderAll();
+  alert('✓ Costo de productos limpiado. Envío y duties se mantuvieron. Reimportá el CSV de costos.');
+}
+
+function resetAllCostValues(){
+  if(!confirm('¿Limpiar SOLO el costo de productos de TODOS los meses?\nEnvío, duties y ventas se mantienen intactos.'))return;
+  Object.values(S.months||{}).forEach(month=>{
+    (month.orders||[]).forEach(o=>{ o.productCostARS=''; });
+  });
+  schedSave(); renderAll();
+  alert('✓ Costo de productos limpiado en todos los meses. Envío y duties se mantuvieron. Reimportá los CSV de costos.');
+}
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
 
 // ===== CSV IMPORT DE COSTOS =====
@@ -1464,12 +1484,9 @@ function applyCostCSV(){
   pendingCSV.forEach(r => {
     const existing = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
     if(existing){
-      if(!existing.productCostARS || parseFloat(existing.productCostARS) === 0){
-        existing.productCostARS = r.productCostARS;
-        updated++;
-      } else {
-        skipped++;
-      }
+      // ALWAYS overwrite product cost (in ARS) on reimport
+      existing.productCostARS = r.productCostARS;
+      updated++;
       if(!existing.tracking && r.tracking) existing.tracking = r.tracking;
     } else {
       m.orders.push({
@@ -1489,7 +1506,7 @@ function applyCostCSV(){
   pendingCSV = [];
   document.getElementById('csv-preview').style.display = 'none';
   schedSave(); renderOrders(); renderDashboard();
-  alert(`✓ Importación completa:\n• ${added} pedidos nuevos creados\n• ${updated} pedidos actualizados con costo\n• ${skipped} pedidos sin cambios (ya tenían costo)`);
+  alert(`✓ Importación completa:\n• ${added} pedidos nuevos creados\n• ${updated} pedidos con costo actualizado (se pisó el valor anterior)`);
 }
 
 // ===== SHOPIFY SALES CSV IMPORT =====
