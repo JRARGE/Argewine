@@ -285,23 +285,18 @@ tr:last-child td{border-bottom:none}
       <div class="banner info">
         <i class="ti ti-info-circle" style="flex-shrink:0;margin-top:1px"></i>
         <div>
-          <strong>Facturas del email invoice@argewine.com</strong><br>
-          Descargá el PDF de la factura FedEx desde tu email (asunto: "Su Factura XXXXXXX de Fedex") y subilo acá. La IA extrae todos los AWBs y los cruza contra tus pedidos por número de pedido y número de tracking.
+          <strong>Cargá todas tus facturas de FedEx de una vez.</strong><br>
+          La IA detecta automáticamente si cada factura es de <strong>transporte</strong> ("Por Servicio de Transporte Express") o de <strong>impuestos</strong> ("Reintegro de Gastos / Servicios Auxiliares"), lee los valores en <strong>pesos (ARS)</strong>, identifica el pedido por el campo <strong>Referencia</strong>, y calcula el depósito según la cantidad de cajas de cada envío.
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title"><i class="ti ti-file-invoice"></i> Subir factura FedEx (PDF)</div>
-        <div style="display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap">
-          <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="radio" name="fxt" value="shipping" checked> Factura de envíos</label>
-          <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="radio" name="fxt" value="duties"> Factura de duties/impuestos</label>
-          <label style="font-size:12px;display:flex;align-items:center;gap:5px"><input type="radio" name="fxt" value="both"> Ambos en el mismo PDF</label>
-        </div>
+        <div class="card-title"><i class="ti ti-file-invoice"></i> Subir facturas FedEx (podés varias a la vez)</div>
         <div class="upload-zone" id="fx-drop" onclick="document.getElementById('fx-pdf').click()">
-          <input type="file" id="fx-pdf" accept=".pdf" onchange="processFedex(this.files[0])">
+          <input type="file" id="fx-pdf" accept=".pdf" multiple onchange="processFedex(this.files)">
           <i class="ti ti-file-invoice" style="font-size:26px;margin-bottom:5px"></i>
-          <div style="font-size:13px;font-weight:500">Subir PDF de FedEx</div>
-          <div style="font-size:11px;margin-top:2px">Arrastrá o tocá — puede tener múltiples AWBs</div>
+          <div style="font-size:13px;font-weight:500">Subir facturas de FedEx</div>
+          <div style="font-size:11px;margin-top:2px">Podés seleccionar VARIAS a la vez — detecta tipo, referencia y cajas</div>
         </div>
         <div class="loader" id="fx-loader"><div class="spinner"></div><span id="fx-st">Procesando...</span></div>
       </div>
@@ -866,138 +861,214 @@ function renderFxHist(){
 // ===== CLAUDE API =====
 async function callClaude(messages, maxTokens=4000){
   const key=getClaudeKey();
-  if(!key) throw new Error('Configurá la API key de Claude en Config');
-  const r=await fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01','x-api-key':key},
-    body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:maxTokens,messages})
-  });
+  if(!key) throw new Error('Configurá la API key de Claude en la pestaña Config.');
+  let r;
+  try{
+    r=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'anthropic-version':'2023-06-01',
+        'x-api-key':key,
+        'anthropic-dangerous-direct-browser-access':'true'
+      },
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:maxTokens,messages})
+    });
+  }catch(netErr){
+    throw new Error('No se pudo conectar con la API de Claude. Verificá tu conexión a internet y que la API key sea válida. (Detalle: '+netErr.message+')');
+  }
+  if(!r.ok){
+    let msg='Error '+r.status;
+    try{ const ed=await r.json(); if(ed.error) msg=ed.error.message||msg; }catch(e){}
+    if(r.status===401) msg='API key inválida o vencida. Revisá la key en Config.';
+    if(r.status===429) msg='Límite de uso alcanzado en la API. Esperá un momento y reintentá.';
+    if(r.status===529) msg='La API de Claude está sobrecargada. Reintentá en unos segundos.';
+    throw new Error(msg);
+  }
   const d=await r.json();
   if(d.error) throw new Error(d.error.message);
   return d.content[0].text;
 }
 
-// ===== FEDEX PROCESSING =====
-async function processFedex(file){
-  if(!file) return;
-  const fxt=document.querySelector('input[name="fxt"]:checked').value;
+// ===== FEDEX PROCESSING (multi-archivo) =====
+async function processFedex(fileList){
+  const files = fileList instanceof FileList ? Array.from(fileList) : [fileList];
+  if(!files.length || !files[0]) return;
   const loader=document.getElementById('fx-loader');
   loader.classList.add('on');
-  document.getElementById('fx-st').textContent='Leyendo PDF de FedEx...';
-  try{
-    const b64=await toB64(file);
-    document.getElementById('fx-st').textContent='Extrayendo AWBs con IA...';
 
-    // Build order context for cross-referencing
-    const m=gm();
-    const orderCtx=m.orders.map(o=>`Pedido ${o.num} | Tracking: ${o.tracking||'sin tracking'}`).join('\n');
+  const depCost = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
+  const m=gm();
+  const orderCtx=m.orders.map(o=>`Pedido ${o.num} | Tracking: ${o.tracking||'sin tracking'}`).join('\n');
 
-    const typeDesc = fxt==='shipping'?'ENVÍOS (freight/transportation charges)':
-      fxt==='duties'?'IMPUESTOS/DUTIES (customs duties, taxes, brokerage)':'ENVÍOS E IMPUESTOS';
+  let allEntries = [];
+  let processedCount = 0;
+  let errors = [];
 
-    const prompt=`Sos un extractor especializado en facturas FedEx para importaciones de vino a EE.UU.
-Esta factura es de tipo: ${typeDesc}.
+  for(let fi=0; fi<files.length; fi++){
+    const file = files[fi];
+    document.getElementById('fx-st').textContent=`Procesando factura ${fi+1} de ${files.length}: ${file.name}...`;
+    try{
+      const b64=await toB64(file);
 
-PEDIDOS EXISTENTES EN EL SISTEMA (para cruzar automáticamente):
+      const prompt=`Sos un extractor especializado en facturas de FedEx Argentina para una importadora de vinos.
+
+PASO 1 — DETECTAR EL TIPO DE FACTURA por el título que aparece DENTRO del documento:
+- Si dice "Por Servicio de Transporte Express" → es una factura de tipo "shipping" (ENVÍOS).
+- Si dice "Reintegro de Gastos / Servicios Auxiliares" → es una factura de tipo "duties" (IMPUESTOS).
+
+PASO 2 — EXTRAER LOS VALORES SIEMPRE EN PESOS ARGENTINOS (ARS), NUNCA en dólares.
+Las facturas muestran montos en USD y en ARS según el cambio oficial. Siempre tomá el valor en PESOS (ARS).
+
+PASO 3 — Para cada envío identificá:
+- El número de pedido: aparece en el campo "Referencia" de la factura.
+- El número de tracking/AWB.
+- Para facturas de ENVÍOS (transporte): la cantidad de PIEZAS o cajas de cada envío (aparece como "piezas", "pieces" o cantidad de bultos).
+
+PEDIDOS EXISTENTES EN EL SISTEMA (para cruzar):
 ${orderCtx||'(sin pedidos cargados aún)'}
 
-Extraé TODOS los AWBs/envíos de esta factura. Para cada AWB, intentá identificar el pedido correspondiente cruzando:
-1. El número de referencia del pedido que aparezca en la factura (puede ser el número de pedido como "#2350" o solo "2350")
-2. El número de tracking AWB contra los trackings de los pedidos listados arriba
+Cruzá cada envío con un pedido existente por:
+1. El campo "Referencia" de la factura contra el número de pedido.
+2. El número de tracking contra los trackings listados.
 
 Devolvé ÚNICAMENTE este JSON sin texto adicional ni backticks:
 {
-  "invoiceType": "${fxt}",
+  "invoiceType": "shipping o duties (según el título detectado en PASO 1)",
+  "detectedTitle": "el título exacto que encontraste en el documento",
   "invoiceDate": "fecha de la factura",
   "invoiceNumber": "número de factura FedEx",
-  "currency": "USD",
+  "currency": "ARS",
   "entries": [
     {
       "awb": "número de tracking AWB completo",
-      "orderRef": "número de pedido detectado en la factura, ej: 2350 o vacío si no aparece",
-      "matchedOrderNum": "número de pedido del sistema que mejor coincide (con el # adelante, ej: #2350), o vacío si no hay match",
+      "orderRef": "número de la Referencia (= número de pedido), ej: 2350",
+      "matchedOrderNum": "número de pedido del sistema que coincide (con # adelante), o vacío",
       "matchConfidence": "high/medium/low/none",
-      "shippingCharge": 0.00,
-      "dutiesCharge": 0.00,
-      "description": "descripción breve si aparece"
+      "shippingChargeARS": 0.00,
+      "dutiesChargeARS": 0.00,
+      "pieces": 0,
+      "description": "descripción breve"
     }
   ],
-  "totalShipping": 0.00,
-  "totalDuties": 0.00
+  "totalShippingARS": 0.00,
+  "totalDutiesARS": 0.00
 }
-Para ENVÍOS: shippingCharge = monto, dutiesCharge = 0.
-Para DUTIES: dutiesCharge = monto, shippingCharge = 0.`;
+IMPORTANTE:
+- shippingChargeARS y dutiesChargeARS SIEMPRE en PESOS (ARS), nunca dólares.
+- Para facturas "shipping": completá shippingChargeARS y pieces, dejá dutiesChargeARS en 0.
+- Para facturas "duties": completá dutiesChargeARS, dejá shippingChargeARS y pieces en 0.`;
 
-    const text=await callClaude([{role:'user',content:[
-      {type:'document',source:{type:'base64',media_type:'application/pdf',data:b64.split(',')[1]}},
-      {type:'text',text:prompt}
-    ]}]);
+      const text=await callClaude([{role:'user',content:[
+        {type:'document',source:{type:'base64',media_type:'application/pdf',data:b64.split(',')[1]}},
+        {type:'text',text:prompt}
+      ]}]);
 
-    let parsed;
-    try{ parsed=JSON.parse(text.replace(/```json|```/g,'').trim()); }
-    catch(e){ throw new Error('La IA no devolvió JSON válido. Intentá de nuevo.'); }
+      let parsed;
+      try{ parsed=JSON.parse(text.replace(/```json|```/g,'').trim()); }
+      catch(e){ errors.push(`${file.name}: la IA no devolvió JSON válido`); continue; }
 
-    pendingAwbs=parsed.entries||[];
-    document.getElementById('fx-raw').textContent=JSON.stringify(parsed,null,2);
+      const invType = parsed.invoiceType==='duties'?'duties':'shipping';
+      (parsed.entries||[]).forEach(e=>{
+        allEntries.push({
+          awb: e.awb||'',
+          orderRef: e.orderRef||'',
+          matchedOrderNum: e.matchedOrderNum||'',
+          matchConfidence: e.matchConfidence||'none',
+          invoiceType: invType,
+          shippingARS: parseFloat(e.shippingChargeARS)||0,
+          dutiesARS: parseFloat(e.dutiesChargeARS)||0,
+          pieces: parseInt(e.pieces)||0,
+          depositCost: (parseInt(e.pieces)||0) > 0 ? (depCost * (parseInt(e.pieces)||0)) : 0,
+          description: e.description||'',
+          sourceFile: file.name,
+          detectedTitle: parsed.detectedTitle||''
+        });
+      });
+      processedCount++;
+    }catch(err){
+      errors.push(`${file.name}: ${err.message}`);
+    }
+  }
 
-    const totalShip=parsed.totalShipping||pendingAwbs.reduce((a,e)=>a+(parseFloat(e.shippingCharge)||0),0);
-    const totalDut=parsed.totalDuties||pendingAwbs.reduce((a,e)=>a+(parseFloat(e.dutiesCharge)||0),0);
-
-    document.getElementById('fx-summary').innerHTML=
-      `<span class="badge info">${pendingAwbs.length} AWB${pendingAwbs.length!==1?'s':''} detectados</span> `+
-      `<span style="color:var(--text2);font-size:12px">`+
-      (totalShip>0?`Envío: <strong>$${totalShip.toFixed(2)}</strong>`:'')+ 
-      (totalDut>0?` Duties: <strong>$${totalDut.toFixed(2)}</strong>`:'')+
-      `</span>`+
-      (parsed.invoiceNumber?`<div style="font-size:11px;color:var(--text2);margin-top:3px">Factura Nº ${parsed.invoiceNumber} — ${parsed.invoiceDate||''}</div>`:'');
-
-    // Auto-match by tracking too (client side, extra layer)
-    const orders=gm().orders;
-    pendingAwbs.forEach(e=>{
-      if(!e.matchedOrderNum||e.matchConfidence==='none'||e.matchConfidence==='low'){
-        const byTrack=orders.find(o=>o.tracking&&e.awb&&normalizeTrack(o.tracking).includes(normalizeTrack(e.awb).substring(0,10)));
-        if(byTrack){ e.matchedOrderNum=byTrack.num; e.matchConfidence='medium'; e._matchSource='tracking'; }
-        if(!e.matchedOrderNum&&e.orderRef){
-          const byRef=orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(e.orderRef));
-          if(byRef){ e.matchedOrderNum=byRef.num; e.matchConfidence='high'; e._matchSource='orderRef'; }
-        }
-      }
-    });
-
-    document.getElementById('fx-awbs').innerHTML=pendingAwbs.map((e,i)=>{
-      const confCls=e.matchConfidence==='high'?'ok':e.matchConfidence==='medium'?'warn':'err';
-      const confTxt=e.matchConfidence==='high'?'match seguro':e.matchConfidence==='medium'?'match probable':'sin match';
-      return`<div class="awb-item">
-        <div class="awb-head">
-          <span class="badge info" style="font-family:monospace;font-size:10px">${e.awb||'sin AWB'}</span>
-          ${e.matchedOrderNum?`<span class="badge ${confCls}">${e.matchedOrderNum} — ${confTxt}</span>`:'<span class="badge err">Sin pedido detectado</span>'}
-        </div>
-        <div class="awb-body">
-          ${e.shippingCharge?`Envío: $${parseFloat(e.shippingCharge).toFixed(2)}`:''}
-          ${e.dutiesCharge?` | Duties: $${parseFloat(e.dutiesCharge).toFixed(2)}`:''}
-          ${e.description?` | ${e.description}`:''}
-        </div>
-      </div>`;
-    }).join('');
-
-    document.getElementById('fx-result').style.display='block';
-
-  }catch(err){ alert('Error: '+err.message); }
   loader.classList.remove('on');
   document.getElementById('fx-pdf').value='';
+
+  if(!allEntries.length){
+    alert('No se extrajeron envíos.\n'+(errors.length?'Errores:\n'+errors.join('\n'):''));
+    return;
+  }
+
+  // Client-side re-matching layer
+  const orders=gm().orders;
+  allEntries.forEach(e=>{
+    if(!e.matchedOrderNum||e.matchConfidence==='none'||e.matchConfidence==='low'){
+      if(e.orderRef){
+        const byRef=orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(e.orderRef));
+        if(byRef){ e.matchedOrderNum=byRef.num; e.matchConfidence='high'; }
+      }
+      if(!e.matchedOrderNum && e.awb){
+        const byTrack=orders.find(o=>o.tracking&&normalizeTrack(o.tracking).includes(normalizeTrack(e.awb).substring(0,10)));
+        if(byTrack){ e.matchedOrderNum=byTrack.num; e.matchConfidence='medium'; }
+      }
+    }
+  });
+
+  pendingAwbs = allEntries;
+  document.getElementById('fx-raw').textContent=JSON.stringify(allEntries,null,2);
+
+  const totalShip=allEntries.reduce((a,e)=>a+e.shippingARS,0);
+  const totalDut=allEntries.reduce((a,e)=>a+e.dutiesARS,0);
+  const nShip=allEntries.filter(e=>e.invoiceType==='shipping').length;
+  const nDut=allEntries.filter(e=>e.invoiceType==='duties').length;
+
+  document.getElementById('fx-summary').innerHTML=
+    `<span class="badge info">${allEntries.length} envíos de ${processedCount} factura(s)</span> `+
+    `<span class="badge ok">${nShip} de transporte</span> `+
+    `<span class="badge warn">${nDut} de impuestos</span>`+
+    `<div style="font-size:11px;color:var(--text2);margin-top:4px">`+
+    `Total envío: <strong>$${totalShip.toLocaleString('es-AR')} ARS</strong> | `+
+    `Total impuestos: <strong>$${totalDut.toLocaleString('es-AR')} ARS</strong></div>`+
+    (errors.length?`<div style="font-size:11px;color:var(--err);margin-top:4px">${errors.length} archivo(s) con error</div>`:'');
+
+  document.getElementById('fx-awbs').innerHTML=allEntries.map((e,i)=>{
+    const confCls=e.matchConfidence==='high'?'ok':e.matchConfidence==='medium'?'warn':'err';
+    const confTxt=e.matchConfidence==='high'?'match seguro':e.matchConfidence==='medium'?'match probable':'sin match';
+    const typeLabel=e.invoiceType==='shipping'?'<span class="badge ok" style="font-size:10px">transporte</span>':'<span class="badge warn" style="font-size:10px">impuestos</span>';
+    return`<div class="awb-item">
+      <div class="awb-head">
+        ${typeLabel}
+        <span class="badge info" style="font-family:monospace;font-size:10px">${e.awb||'sin AWB'}</span>
+        ${e.orderRef?`<span class="badge" style="font-size:10px">Ref: ${e.orderRef}</span>`:''}
+        ${e.matchedOrderNum?`<span class="badge ${confCls}">${e.matchedOrderNum} — ${confTxt}</span>`:'<span class="badge err">sin match</span>'}
+      </div>
+      <div class="awb-body">
+        ${e.shippingARS?`Envío: $${e.shippingARS.toLocaleString('es-AR')} ARS`:''}
+        ${e.dutiesARS?`Impuestos: $${e.dutiesARS.toLocaleString('es-AR')} ARS`:''}
+        ${e.pieces?` | ${e.pieces} cajas → depósito $${e.depositCost.toFixed(2)} USD`:''}
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('fx-result').style.display='block';
 }
 
 function openAwbModal(){
-  if(!pendingAwbs.length){ alert('No hay AWBs para asignar'); return; }
+  if(!pendingAwbs.length){ alert('No hay envíos para asignar'); return; }
   const orders=gm().orders;
   document.getElementById('awb-assign').innerHTML=pendingAwbs.map((e,i)=>{
     const confCls=e.matchConfidence==='high'?'ok':e.matchConfidence==='medium'?'warn':'';
+    const typeLabel=e.invoiceType==='shipping'?'<span class="badge ok" style="font-size:10px">transporte</span>':'<span class="badge warn" style="font-size:10px">impuestos</span>';
     return`<div style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="font-size:11px;font-family:monospace;font-weight:600;margin-bottom:2px">${e.awb||'sin AWB'}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:3px;flex-wrap:wrap">
+        ${typeLabel}
+        <span style="font-size:11px;font-family:monospace;font-weight:600">${e.awb||'sin AWB'}</span>
+      </div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:5px">
-        ${e.shippingCharge?`Envío: $${parseFloat(e.shippingCharge).toFixed(2)}`:''}
-        ${e.dutiesCharge?` | Duties: $${parseFloat(e.dutiesCharge).toFixed(2)}`:''}
-        ${e.orderRef?` | Ref factura: ${e.orderRef}`:''}
+        ${e.shippingARS?`Envío: $${e.shippingARS.toLocaleString('es-AR')} ARS`:''}
+        ${e.dutiesARS?`Impuestos: $${e.dutiesARS.toLocaleString('es-AR')} ARS`:''}
+        ${e.pieces?` | ${e.pieces} cajas → depósito $${e.depositCost.toFixed(2)}`:''}
+        ${e.orderRef?` | Ref: ${e.orderRef}`:''}
       </div>
       <div class="row">
         <span style="font-size:12px;color:var(--text2)">Asignar a pedido:</span>
@@ -1017,10 +1088,8 @@ function closeOv(id){ document.getElementById(id).classList.remove('on'); }
 
 function applyAwbs(){
   const m=gm();
-  const fxt=document.querySelector('input[name="fxt"]:checked').value;
+  const fx=parseFloat(localStorage.getItem('aw_fx'))||0;
   let applied=0, totalShip=0, totalDut=0;
-  const invNum=document.getElementById('fx-raw').textContent ?
-    (JSON.parse(document.getElementById('fx-raw').textContent||'{}').invoiceNumber||'') : '';
 
   pendingAwbs.forEach((e,i)=>{
     const sel=document.getElementById('awb-sel-'+i);
@@ -1029,18 +1098,23 @@ function applyAwbs(){
     if(!orderNum||orderNum==='__skip__') return;
     const order=m.orders.find(o=>o.num===orderNum);
     if(!order) return;
-    const sc=parseFloat(e.shippingCharge)||0;
-    const dc=parseFloat(e.dutiesCharge)||0;
-    if(sc>0){ order.shipping=((parseFloat(order.shipping)||0)+sc).toFixed(2); totalShip+=sc; }
-    if(dc>0){ order.duties=((parseFloat(order.duties)||0)+dc).toFixed(2); totalDut+=dc; }
+    // Values come in ARS — convert to USD with configured rate for storage
+    const shipARS=e.shippingARS||0;
+    const dutARS=e.dutiesARS||0;
+    const shipUSD = fx>0 ? shipARS/fx : shipARS;
+    const dutUSD  = fx>0 ? dutARS/fx : dutARS;
+    if(shipARS>0){ order.shipping=((parseFloat(order.shipping)||0)+shipUSD).toFixed(2); totalShip+=shipARS; }
+    if(dutARS>0){ order.duties=((parseFloat(order.duties)||0)+dutUSD).toFixed(2); totalDut+=dutARS; }
+    // Deposit = depCost * pieces (only from shipping invoices that report pieces)
+    if(e.pieces>0 && e.depositCost>0){ order.handling=e.depositCost.toFixed(2); }
     applied++;
   });
   if(!m.fxHist) m.fxHist=[];
-  m.fxHist.push({ type:fxt, date:new Date().toLocaleDateString('es-AR'), invNum, count:applied, totalShip:totalShip.toFixed(2), totalDut:totalDut.toFixed(2) });
+  m.fxHist.push({ type:'mixto', date:new Date().toLocaleDateString('es-AR'), invNum:'', count:applied, totalShip:totalShip.toFixed(0)+' ARS', totalDut:totalDut.toFixed(0)+' ARS' });
   pendingAwbs=[];
   schedSave(); closeOv('ov-awb'); renderOrders(); renderDashboard(); renderFxHist();
   document.getElementById('fx-result').style.display='none';
-  alert(`✓ ${applied} AWB${applied!==1?'s':''} aplicados a sus pedidos.`);
+  alert(`✓ ${applied} envío(s) aplicados a sus pedidos.\nValores convertidos de ARS a USD con tipo de cambio $${fx}.`);
 }
 
 // ===== EXPENSE IMAGE =====
@@ -1332,7 +1406,7 @@ function toggleRaw(id){ const el=document.getElementById(id); el.style.display=e
 const fxDrop=document.getElementById('fx-drop');
 fxDrop.addEventListener('dragover',e=>{e.preventDefault();fxDrop.style.background='var(--bg2)';});
 fxDrop.addEventListener('dragleave',()=>{fxDrop.style.background='';});
-fxDrop.addEventListener('drop',e=>{e.preventDefault();fxDrop.style.background='';const f=e.dataTransfer.files[0];if(f)processFedex(f);});
+fxDrop.addEventListener('drop',e=>{e.preventDefault();fxDrop.style.background='';if(e.dataTransfer.files.length)processFedex(e.dataTransfer.files);});
 
 // Init
 ld();
