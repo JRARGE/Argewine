@@ -288,8 +288,8 @@ tr:last-child td{border-bottom:none}
       <div class="card">
         <div class="card-title"><i class="ti ti-plus"></i> Nuevo pedido</div>
         <div class="row"><span class="lbl">Nº Pedido</span><input type="text" id="o-num" placeholder="#2350 o #2350-2" style="width:120px"><span class="lbl">Tracking AWB</span><input type="text" id="o-trk" placeholder="886000000000" style="width:160px"></div>
-        <div class="row"><span class="lbl">Precio venta ($)</span><input type="number" id="o-sale" placeholder="0.00" step="0.01"><span class="lbl">Costo prod. ($)</span><input type="number" id="o-cost" placeholder="0.00" step="0.01"></div>
-        <div class="row"><span class="lbl">Envío FedEx ($)</span><input type="number" id="o-ship" placeholder="auto" step="0.01"><span class="lbl">Duties FedEx ($)</span><input type="number" id="o-duty" placeholder="auto" step="0.01"></div>
+        <div class="row"><span class="lbl">Venta (USD)</span><input type="number" id="o-sale" placeholder="0.00" step="0.01"><span class="lbl">Costo prod. (ARS)</span><input type="number" id="o-cost" placeholder="pesos" step="0.01"></div>
+        <div class="row"><span class="lbl">Envío FedEx (ARS)</span><input type="number" id="o-ship" placeholder="pesos" step="0.01"><span class="lbl">Duties FedEx (ARS)</span><input type="number" id="o-duty" placeholder="pesos" step="0.01"></div>
         <div class="row"><span class="lbl">Depósito ($)</span><input type="number" id="o-dep" placeholder="3.25" step="0.01" style="width:90px"><span class="lbl">Notas</span><input type="text" id="o-notes" placeholder="ej: 2do envío" style="width:155px"></div>
         <div class="btn-row">
           <button class="btn primary" onclick="addOrder()"><i class="ti ti-plus"></i> Agregar</button>
@@ -299,7 +299,7 @@ tr:last-child td{border-bottom:none}
       <div class="card" style="padding:0">
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Pedido</th><th>Tracking</th><th>Venta</th><th>Prod.</th><th>Envío</th><th>Duties</th><th>Dep.</th><th>Ganancia</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>Pedido</th><th>Tracking</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
             <tbody id="orders-tb"></tbody>
           </table>
         </div>
@@ -683,6 +683,65 @@ function setSaveInd(cls, txt){
 
 // ===== LOCAL STORAGE =====
 function gm(){ if(!S.months[cur]) S.months[cur]={orders:[],expenses:[],fxHist:[]}; return S.months[cur]; }
+
+// ===== CURRENCY MODEL =====
+// Native storage per field:
+//   salePrice  -> USD (from Shopify)
+//   productCostARS -> ARS (pesos, from cost Excel)
+//   shippingARS    -> ARS (pesos, from FedEx transport invoice)
+//   dutiesARS      -> ARS (pesos, from FedEx duties invoice)
+//   handling   -> USD (deposit, depCost x boxes)
+// Everything is displayed in USD using the configured exchange rate.
+function getFx(){ return parseFloat(localStorage.getItem('aw_fx')) || 0; }
+function arsToUsd(ars){ const fx=getFx(); return fx>0 ? (parseFloat(ars)||0)/fx : 0; }
+
+// Returns all order amounts already converted to USD
+function orderUSD(o){
+  return {
+    sale:    parseFloat(o.salePrice)||0,               // already USD
+    product: arsToUsd(o.productCostARS),               // pesos -> USD
+    shipping:arsToUsd(o.shippingARS),                  // pesos -> USD
+    duties:  arsToUsd(o.dutiesARS),                    // pesos -> USD
+    deposit: parseFloat(o.handling)||0                 // already USD
+  };
+}
+
+// One-time migration: convert old orders into the new ARS-native model.
+// Old versions were inconsistent: some stored product cost in ARS (big numbers),
+// some in USD. We detect by magnitude using the configured exchange rate.
+function migrateData(){
+  if(S._migratedV9) return;
+  const fx = getFx() || 1450;
+  Object.values(S.months||{}).forEach(month=>{
+    (month.orders||[]).forEach(o=>{
+      // Skip if already migrated (new fields present)
+      if(o.productCostARS!==undefined || o.shippingARS!==undefined || o.dutiesARS!==undefined) return;
+
+      // PRODUCT COST: legacy stored either ARS (big, e.g. 28962) or USD (small, e.g. 199).
+      // Heuristic: if value > 5000 it's almost certainly ARS; otherwise treat as USD and convert up.
+      if(o.productCost!==undefined && o.productCost!=='' && o.productCost!=null){
+        const v = parseFloat(o.productCost)||0;
+        o.productCostARS = (v > 5000 ? v : v*fx).toFixed(2);
+      } else { o.productCostARS=''; }
+
+      // SHIPPING: legacy stored either ARS (big) or USD (small, e.g. 144).
+      if(o.shipping!==undefined && o.shipping!=='' && o.shipping!=null){
+        const v = parseFloat(o.shipping)||0;
+        o.shippingARS = (v > 5000 ? v : v*fx).toFixed(2);
+      } else { o.shippingARS=''; }
+
+      // DUTIES: same heuristic
+      if(o.duties!==undefined && o.duties!=='' && o.duties!=null){
+        const v = parseFloat(o.duties)||0;
+        o.dutiesARS = (v > 5000 ? v : v*fx).toFixed(2);
+      } else { o.dutiesARS=''; }
+
+      delete o.productCost; delete o.shipping; delete o.duties;
+    });
+  });
+  S._migratedV9 = true;
+  sv();
+}
 function sv(){ try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
 function ld(){
   try{ const d=localStorage.getItem(LS); if(d) S=JSON.parse(d); }catch(e){}
@@ -723,13 +782,17 @@ function renderAll(){ renderDashboard(); renderOrders(); renderExpenses(); rende
 
 // ===== CALCS =====
 function calcProfit(o){
-  return(parseFloat(o.salePrice)||0)-(parseFloat(o.productCost)||0)
-    -(parseFloat(o.shipping)||0)-(parseFloat(o.duties)||0)-(parseFloat(o.handling)||0);
+  const u=orderUSD(o);
+  return u.sale - u.product - u.shipping - u.duties - u.deposit;
 }
 function orderStatus(o){
-  if(!o.salePrice&&!o.productCost) return 'empty';
-  if(!o.salePrice||!o.productCost) return 'partial';
-  if(o.shipping===''||o.shipping==null||o.duties===''||o.duties==null) return 'partial';
+  const hasSale = o.salePrice!==''&&o.salePrice!=null;
+  const hasProd = o.productCostARS!==''&&o.productCostARS!=null;
+  const hasShip = o.shippingARS!==''&&o.shippingARS!=null;
+  const hasDut  = o.dutiesARS!==''&&o.dutiesARS!=null;
+  if(!hasSale&&!hasProd) return 'empty';
+  if(!hasSale||!hasProd) return 'partial';
+  if(!hasShip||!hasDut) return 'partial';
   return 'complete';
 }
 function normalizeOrderNum(s){ return (s||'').replace(/[^0-9\-]/g,'').trim(); }
@@ -740,12 +803,8 @@ function renderDashboard(){
   const m=gm();
   let sales=0,costs=0,gross=0;
   m.orders.forEach(o=>{
-    const s=parseFloat(o.salePrice)||0;
-    const pc=parseFloat(o.productCost)||0;
-    const sh=parseFloat(o.shipping)||0;
-    const du=parseFloat(o.duties)||0;
-    const dep=parseFloat(o.handling)||0;
-    sales+=s; costs+=pc+sh+du+dep; gross+=calcProfit(o);
+    const u=orderUSD(o);
+    sales+=u.sale; costs+=u.product+u.shipping+u.duties+u.deposit; gross+=calcProfit(o);
   });
   const totalExp=m.expenses.reduce((a,e)=>a+(parseFloat(e.amount)||0),0);
   const net=gross-totalExp;
@@ -799,18 +858,22 @@ function renderOrders(){
   }
   tb.innerHTML=m.orders.map((o,i)=>{
     const pr=calcProfit(o);
+    const u=orderUSD(o);
     const st=orderStatus(o);
     const dc=st==='complete'?'ok':st==='partial'?'warn':'err';
     const sl=st==='complete'?'OK':st==='partial'?'Parcial':'Vacío';
     const trk=(o.tracking||'').length>13?(o.tracking||'').substring(0,13)+'…':(o.tracking||'-');
+    const hasShip = o.shippingARS!==''&&o.shippingARS!=null;
+    const hasDut = o.dutiesARS!==''&&o.dutiesARS!=null;
+    const hasProd = o.productCostARS!==''&&o.productCostARS!=null;
     return`<tr>
       <td><strong>${o.num}</strong>${o.notes?`<div style="font-size:10px;color:var(--text2)">${o.notes}</div>`:''}</td>
       <td style="font-size:10px;font-family:monospace;color:var(--text2)">${trk}</td>
-      <td>$${(parseFloat(o.salePrice)||0).toFixed(2)}</td>
-      <td>$${(parseFloat(o.productCost)||0).toFixed(2)}</td>
-      <td style="${!o.shipping?'color:var(--text3)':''}">$${(parseFloat(o.shipping)||0).toFixed(2)}</td>
-      <td style="${!o.duties?'color:var(--text3)':''}">$${(parseFloat(o.duties)||0).toFixed(2)}</td>
-      <td>$${(parseFloat(o.handling)||0).toFixed(2)}</td>
+      <td>$${u.sale.toFixed(2)}</td>
+      <td style="${!hasProd?'color:var(--text3)':''}" title="${hasProd?'$'+parseFloat(o.productCostARS).toLocaleString('es-AR')+' ARS':''}">$${u.product.toFixed(2)}</td>
+      <td style="${!hasShip?'color:var(--text3)':''}" title="${hasShip?'$'+parseFloat(o.shippingARS).toLocaleString('es-AR')+' ARS':''}">$${u.shipping.toFixed(2)}</td>
+      <td style="${!hasDut?'color:var(--text3)':''}" title="${hasDut?'$'+parseFloat(o.dutiesARS).toLocaleString('es-AR')+' ARS':''}">$${u.duties.toFixed(2)}</td>
+      <td>$${u.deposit.toFixed(2)}</td>
       <td style="font-weight:600;color:${pr>=0?'var(--ok)':'var(--err)'}">$${pr.toFixed(2)}</td>
       <td><span class="dot ${dc}"></span>${sl}</td>
       <td><button class="btn sm danger" onclick="delOrder(${i})"><i class="ti ti-trash"></i></button></td>
@@ -825,9 +888,9 @@ function addOrder(){
   gm().orders.push({
     num, tracking:document.getElementById('o-trk').value.trim(),
     salePrice:document.getElementById('o-sale').value,
-    productCost:document.getElementById('o-cost').value,
-    shipping:document.getElementById('o-ship').value,
-    duties:document.getElementById('o-duty').value,
+    productCostARS:document.getElementById('o-cost').value,
+    shippingARS:document.getElementById('o-ship').value,
+    dutiesARS:document.getElementById('o-duty').value,
     handling:dep,
     notes:document.getElementById('o-notes').value
   });
@@ -1114,7 +1177,6 @@ function closeOv(id){ document.getElementById(id).classList.remove('on'); }
 
 function applyAwbs(){
   const m=gm();
-  const fx=parseFloat(localStorage.getItem('aw_fx'))||0;
   let applied=0, totalShip=0, totalDut=0;
 
   pendingAwbs.forEach((e,i)=>{
@@ -1124,14 +1186,12 @@ function applyAwbs(){
     if(!orderNum||orderNum==='__skip__') return;
     const order=m.orders.find(o=>o.num===orderNum);
     if(!order) return;
-    // Values come in ARS — convert to USD with configured rate for storage
+    // Store shipping/duties in ARS (pesos) — conversion to USD happens at display time
     const shipARS=e.shippingARS||0;
     const dutARS=e.dutiesARS||0;
-    const shipUSD = fx>0 ? shipARS/fx : shipARS;
-    const dutUSD  = fx>0 ? dutARS/fx : dutARS;
-    if(shipARS>0){ order.shipping=((parseFloat(order.shipping)||0)+shipUSD).toFixed(2); totalShip+=shipARS; }
-    if(dutARS>0){ order.duties=((parseFloat(order.duties)||0)+dutUSD).toFixed(2); totalDut+=dutARS; }
-    // Deposit = depCost * pieces (only from shipping invoices that report pieces)
+    if(shipARS>0){ order.shippingARS=((parseFloat(order.shippingARS)||0)+shipARS).toFixed(2); totalShip+=shipARS; }
+    if(dutARS>0){ order.dutiesARS=((parseFloat(order.dutiesARS)||0)+dutARS).toFixed(2); totalDut+=dutARS; }
+    // Deposit = depCost (USD) * pieces — only from transport invoices that report pieces
     if(e.pieces>0 && e.depositCost>0){ order.handling=e.depositCost.toFixed(2); }
     applied++;
   });
@@ -1140,7 +1200,7 @@ function applyAwbs(){
   pendingAwbs=[];
   schedSave(); closeOv('ov-awb'); renderOrders(); renderDashboard(); renderFxHist();
   document.getElementById('fx-result').style.display='none';
-  alert(`✓ ${applied} envío(s) aplicados a sus pedidos.\nValores convertidos de ARS a USD con tipo de cambio $${fx}.`);
+  alert(`✓ ${applied} envío(s) aplicados a sus pedidos.\nLos costos se guardan en pesos y se muestran en USD según el tipo de cambio configurado.`);
 }
 
 // ===== EXPENSE IMAGE =====
@@ -1262,17 +1322,31 @@ async function testClaudeKey(){
 function saveCfg(key,inputId){
   const v=document.getElementById(inputId).value;
   localStorage.setItem('aw_'+key,v);
-  alert('Guardado: '+v);
+  // Recalculate everything — changing the exchange rate updates all USD displays
+  renderAll();
+  if(key==='fx') alert('Tipo de cambio actualizado: $'+v+' ARS/USD.\nTodo el panel se recalculó en dólares.');
+  else alert('Guardado: '+v);
 }
 
 // ===== EXPORT =====
 function exportCSV(){
   const m=gm();
-  const rows=[['Pedido','Tracking','Venta','Costo Prod.','Envío FedEx','Duties FedEx','Depósito','Ganancia','Estado','Notas']];
-  m.orders.forEach(o=>rows.push([o.num,o.tracking,o.salePrice,o.productCost,o.shipping,o.duties,o.handling,calcProfit(o).toFixed(2),orderStatus(o),o.notes||'']));
-  rows.push([]); rows.push(['GASTOS DEL MES']);
-  m.expenses.forEach(e=>rows.push([e.desc,'','','','','','',e.amount]));
-  rows.push(['TOTAL GASTOS','','','','','','',m.expenses.reduce((a,e)=>a+(parseFloat(e.amount)||0),0).toFixed(2)]);
+  const fx=getFx();
+  const rows=[['Pedido','Tracking','Venta USD','Costo Prod ARS','Costo Prod USD','Envío ARS','Envío USD','Duties ARS','Duties USD','Depósito USD','Ganancia USD','Estado','Notas']];
+  m.orders.forEach(o=>{
+    const u=orderUSD(o);
+    rows.push([o.num,o.tracking,
+      (parseFloat(o.salePrice)||0).toFixed(2),
+      o.productCostARS||'', u.product.toFixed(2),
+      o.shippingARS||'', u.shipping.toFixed(2),
+      o.dutiesARS||'', u.duties.toFixed(2),
+      u.deposit.toFixed(2),
+      calcProfit(o).toFixed(2), orderStatus(o), o.notes||'']);
+  });
+  rows.push([]); rows.push(['GASTOS DEL MES (USD)']);
+  m.expenses.forEach(e=>rows.push([e.desc,'','','','','','','','','',e.amount]));
+  rows.push(['TOTAL GASTOS','','','','','','','','','',m.expenses.reduce((a,e)=>a+(parseFloat(e.amount)||0),0).toFixed(2)]);
+  rows.push([]); rows.push(['Tipo de cambio usado','',fx]);
   const csv=rows.map(r=>r.map(c=>'"'+(c||'').toString().replace(/"/g,'""')+'"').join(',')).join('\n');
   dl(new Blob([csv],{type:'text/csv;charset=utf-8;'}),`argewine_${cur}.csv`);
 }
@@ -1297,9 +1371,8 @@ function importCostCSV(file){
       const rows = parseCSVText(text);
       if(!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
 
-      const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
-      if(!fx){ alert('Configurá primero el tipo de cambio ARS/USD en la pestaña Config.'); return; }
       const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
+      const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
 
       pendingCSV = [];
       rows.forEach(r => {
@@ -1307,26 +1380,25 @@ function importCostCSV(file){
         const trk  = (r['Nº de Seguimiento'] || r['N\u00BA de Seguimiento'] || r['Tracking'] || '').trim();
         const arsRaw = r['Costo Productos (Pesos)'] || r['Costo Productos'] || r['Costo'] || '';
         if(!num) return;
-        const ars  = parseFloat(arsRaw.replace(/[^0-9.,-]/g,'').replace(',','.').replace(/\./g,'').replace(',','.')) ||
-                     parseFloat(arsRaw.replace(/[$\s]/g,'').replace(/,/g,'')) || 0;
-        const usd  = ars > 0 ? (ars / fx) : 0;
-        pendingCSV.push({ num, tracking: trk, productCostARS: ars, productCost: usd.toFixed(2), handling: dep.toFixed(2) });
+        const ars = parseCostARS(arsRaw);
+        pendingCSV.push({ num, tracking: trk, productCostARS: ars.toFixed(2), handling: dep.toFixed(2) });
       });
 
       if(!pendingCSV.length){ alert('No se pudieron leer filas válidas. Verificá el formato.'); return; }
 
-      // Preview
+      // Preview (shows ARS as stored + USD equivalent if FX configured)
       const tbody = document.getElementById('csv-preview-body');
-      tbody.innerHTML = pendingCSV.map(r =>
-        `<tr>
+      tbody.innerHTML = pendingCSV.map(r => {
+        const usd = fx>0 ? '$'+(parseFloat(r.productCostARS)/fx).toFixed(2) : '(falta TC)';
+        return `<tr>
           <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
           <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-family:monospace;font-size:10px">${r.tracking||'-'}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">$${r.productCostARS.toLocaleString('es-AR')}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">$${r.productCost}</td>
-        </tr>`
-      ).join('');
+          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">$${parseFloat(r.productCostARS).toLocaleString('es-AR')}</td>
+          <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">${usd}</td>
+        </tr>`;
+      }).join('');
       document.getElementById('csv-preview-lbl').textContent =
-        `${pendingCSV.length} pedidos listos para importar (tipo de cambio: $${fx.toLocaleString('es-AR')} ARS/USD)`;
+        `${pendingCSV.length} pedidos listos. El costo se guarda en pesos y se convierte a USD al mostrar` + (fx>0?` (TC actual: $${fx.toLocaleString('es-AR')})`:' (configurá el tipo de cambio en Config)');
       document.getElementById('csv-preview').style.display = 'block';
     } catch(err){ alert('Error leyendo archivo: '+err.message); }
   };
@@ -1390,12 +1462,10 @@ function applyCostCSV(){
   let added = 0, updated = 0, skipped = 0;
 
   pendingCSV.forEach(r => {
-    // Check if order already exists
     const existing = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
     if(existing){
-      // Update cost and tracking only if empty
-      if(!existing.productCost || parseFloat(existing.productCost) === 0){
-        existing.productCost = r.productCost;
+      if(!existing.productCostARS || parseFloat(existing.productCostARS) === 0){
+        existing.productCostARS = r.productCostARS;
         updated++;
       } else {
         skipped++;
@@ -1406,9 +1476,9 @@ function applyCostCSV(){
         num: r.num,
         tracking: r.tracking,
         salePrice: '',
-        productCost: r.productCost,
-        shipping: '',
-        duties: '',
+        productCostARS: r.productCostARS,
+        shippingARS: '',
+        dutiesARS: '',
         handling: dep.toFixed(2),
         notes: ''
       });
@@ -1515,6 +1585,7 @@ fxDrop.addEventListener('drop',e=>{e.preventDefault();fxDrop.style.background=''
 
 // Init
 ld();
+migrateData();
 renderAll();
 </script>
 </body>
