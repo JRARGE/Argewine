@@ -260,6 +260,32 @@ tr:last-child td{border-bottom:none}
       </div>
 
       <div class="card">
+        <div class="card-title"><i class="ti ti-shopping-cart"></i> Importar ventas desde Shopify (CSV)</div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
+          Exportá tus pedidos desde Shopify (Orders → Export → CSV) y subí el archivo. La app completa el campo <strong>Venta</strong> de cada pedido con el Total que pagó el cliente, cruzando por número de pedido.
+        </p>
+        <div class="upload-zone" onclick="document.getElementById('shopify-imp').click()">
+          <input type="file" id="shopify-imp" accept=".csv" onchange="importShopifyCSV(this.files[0])">
+          <i class="ti ti-shopping-cart" style="font-size:24px;margin-bottom:5px"></i>
+          <div style="font-size:13px;font-weight:500">Subir CSV de pedidos de Shopify</div>
+          <div style="font-size:11px;margin-top:2px">Usa las columnas "Name" (pedido) y "Total"</div>
+        </div>
+        <div id="shopify-preview" style="margin-top:8px;display:none">
+          <div style="font-size:12px;color:var(--text2);margin-bottom:6px" id="shopify-preview-lbl"></div>
+          <div style="max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)">
+            <table style="width:100%;font-size:11px">
+              <thead><tr><th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2)">Pedido</th><th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2)">Total venta (USD)</th><th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2)">En sistema</th></tr></thead>
+              <tbody id="shopify-preview-body"></tbody>
+            </table>
+          </div>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn primary" onclick="applyShopifyCSV()"><i class="ti ti-check"></i> Completar ventas</button>
+            <button class="btn" onclick="document.getElementById('shopify-preview').style.display='none';pendingShopify=[]">Cancelar</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
         <div class="card-title"><i class="ti ti-plus"></i> Nuevo pedido</div>
         <div class="row"><span class="lbl">Nº Pedido</span><input type="text" id="o-num" placeholder="#2350 o #2350-2" style="width:120px"><span class="lbl">Tracking AWB</span><input type="text" id="o-trk" placeholder="886000000000" style="width:160px"></div>
         <div class="row"><span class="lbl">Precio venta ($)</span><input type="number" id="o-sale" placeholder="0.00" step="0.01"><span class="lbl">Costo prod. ($)</span><input type="number" id="o-cost" placeholder="0.00" step="0.01"></div>
@@ -1394,6 +1420,76 @@ function applyCostCSV(){
   document.getElementById('csv-preview').style.display = 'none';
   schedSave(); renderOrders(); renderDashboard();
   alert(`✓ Importación completa:\n• ${added} pedidos nuevos creados\n• ${updated} pedidos actualizados con costo\n• ${skipped} pedidos sin cambios (ya tenían costo)`);
+}
+
+// ===== SHOPIFY SALES CSV IMPORT =====
+let pendingShopify = [];
+
+function importShopifyCSV(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const rows = parseCSVText(e.target.result);
+      if(!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+
+      // Shopify columns: "Name" = order number, "Total" = order total
+      // Total only appears on the first row of each order
+      const seen = {};
+      pendingShopify = [];
+      rows.forEach(r => {
+        const name = (r['Name'] || r['name'] || '').trim();
+        const totalRaw = (r['Total'] || r['total'] || '').trim();
+        if(!name) return;
+        // Only take rows where Total has a value (first row of each order)
+        if(totalRaw && !seen[name]){
+          const total = parseFloat(totalRaw.replace(/[^0-9.,-]/g,'').replace(/,/g,'')) || 0;
+          if(total > 0){
+            seen[name] = true;
+            pendingShopify.push({ num: name, total: total.toFixed(2) });
+          }
+        }
+      });
+
+      if(!pendingShopify.length){ alert('No se encontraron pedidos con Total. Verificá que el CSV sea el export de pedidos de Shopify.'); return; }
+
+      const m = gm();
+      const tbody = document.getElementById('shopify-preview-body');
+      tbody.innerHTML = pendingShopify.map(r => {
+        const inSystem = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+        return `<tr>
+          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
+          <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">$${r.total}</td>
+          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
+        </tr>`;
+      }).join('');
+      const matchCount = pendingShopify.filter(r => m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim())).length;
+      document.getElementById('shopify-preview-lbl').textContent =
+        `${pendingShopify.length} pedidos en el CSV · ${matchCount} coinciden con pedidos del sistema`;
+      document.getElementById('shopify-preview').style.display = 'block';
+    } catch(err){ alert('Error leyendo archivo: '+err.message); }
+  };
+  reader.readAsText(file, 'UTF-8');
+  document.getElementById('shopify-imp').value = '';
+}
+
+function applyShopifyCSV(){
+  if(!pendingShopify.length) return;
+  const m = gm();
+  let updated = 0, notFound = 0;
+  pendingShopify.forEach(r => {
+    const order = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+    if(order){
+      order.salePrice = r.total;
+      updated++;
+    } else {
+      notFound++;
+    }
+  });
+  pendingShopify = [];
+  document.getElementById('shopify-preview').style.display = 'none';
+  schedSave(); renderOrders(); renderDashboard();
+  alert(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta\n• ${notFound} pedidos del CSV no existían en el sistema`);
 }
 
 // ===== UTILS =====
