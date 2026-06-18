@@ -126,10 +126,20 @@ tr:last-child td{border-bottom:none}
         <h3><i class="ti ti-link"></i> Asignar AWBs a pedidos</h3>
         <button class="btn sm" onclick="closeOv('ov-awb')"><i class="ti ti-x"></i></button>
       </div>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:10px">
-        La IA cruzó cada AWB contra los pedidos existentes por número de pedido y número de tracking. 
-        Verificá y confirmá las asignaciones.
+      <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
+        La IA cruzó cada AWB contra los pedidos existentes por número de pedido y tracking. Verificá y confirmá.
       </p>
+      <div style="display:flex;gap:12px;margin-bottom:10px;padding:8px;background:var(--bg2);border-radius:var(--r);align-items:center;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:500">Modo de carga:</span>
+        <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="radio" name="awb-mode" value="replace" checked>
+          <span><strong>Reemplazar</strong> — pisa los valores existentes (usá esto si querés corregir facturas ya cargadas)</span>
+        </label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="radio" name="awb-mode" value="add">
+          <span><strong>Sumar</strong> — agrega al monto existente (solo si es una factura nueva)</span>
+        </label>
+      </div>
       <div id="awb-assign"></div>
       <div class="btn-row" style="margin-top:12px">
         <button class="btn primary" onclick="applyAwbs()"><i class="ti ti-check"></i> Aplicar todos</button>
@@ -1232,8 +1242,16 @@ function applyAwbs(){
     // Store shipping/duties in ARS (pesos) — conversion to USD happens at display time
     const shipARS=e.shippingARS||0;
     const dutARS=e.dutiesARS||0;
-    if(shipARS>0){ order.shippingARS=((parseFloat(order.shippingARS)||0)+shipARS).toFixed(2); totalShip+=shipARS; }
-    if(dutARS>0){ order.dutiesARS=((parseFloat(order.dutiesARS)||0)+dutARS).toFixed(2); totalDut+=dutARS; }
+    const modeEl=document.querySelector('input[name="awb-mode"]:checked');
+    const replaceMode=!modeEl||modeEl.value==='replace';
+    if(shipARS>0){
+      order.shippingARS=replaceMode ? shipARS.toFixed(2) : ((parseFloat(order.shippingARS)||0)+shipARS).toFixed(2);
+      totalShip+=shipARS;
+    }
+    if(dutARS>0){
+      order.dutiesARS=replaceMode ? dutARS.toFixed(2) : ((parseFloat(order.dutiesARS)||0)+dutARS).toFixed(2);
+      totalDut+=dutARS;
+    }
     // Deposit = depCost (USD) * pieces — only from transport invoices that report pieces
     if(e.pieces>0 && e.depositCost>0){ order.handling=e.depositCost.toFixed(2); }
     applied++;
@@ -1243,7 +1261,9 @@ function applyAwbs(){
   pendingAwbs=[];
   schedSave(); closeOv('ov-awb'); renderOrders(); renderDashboard(); renderFxHist();
   document.getElementById('fx-result').style.display='none';
-  alert(`✓ ${applied} envío(s) aplicados a sus pedidos.\nLos costos se guardan en pesos y se muestran en USD según el tipo de cambio configurado.`);
+  const modeUsed=document.querySelector('input[name="awb-mode"]:checked');
+  const modeLabel=(!modeUsed||modeUsed.value==='replace')?'Modo REEMPLAZAR — los valores anteriores fueron pisados.':'Modo SUMAR — los valores fueron acumulados.';
+  alert(`✓ ${applied} envío(s) aplicados.\n${modeLabel}`);
 }
 
 // ===== EXPENSE IMAGE =====
