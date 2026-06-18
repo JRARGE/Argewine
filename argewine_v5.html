@@ -484,8 +484,15 @@ tr:last-child td{border-bottom:none}
             Si solo el costo de productos quedó mal, limpialo y reimportá el CSV de costos. Envío y duties no se tocan.
           </p>
           <div class="btn-row">
-            <button class="btn danger" onclick="resetCostValues()"><i class="ti ti-eraser"></i> Limpiar costo de productos (mes actual)</button>
-            <button class="btn danger" onclick="resetAllCostValues()"><i class="ti ti-eraser"></i> Limpiar costo de productos (todos los meses)</button>
+            <button class="btn danger" onclick="resetCostValues()"><i class="ti ti-eraser"></i> Limpiar costos de productos (mes actual)</button>
+            <button class="btn danger" onclick="resetAllCostValues()"><i class="ti ti-eraser"></i> Limpiar costos de productos (todos los meses)</button>
+          </div>
+          <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
+            <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Para corregir envíos/duties mal cargados, limpiá solo esos campos y volvé a subir las facturas con modo <strong>Reemplazar</strong>.</p>
+            <div class="btn-row">
+              <button class="btn danger" onclick="resetFedexValues()"><i class="ti ti-eraser"></i> Limpiar envío + duties (mes actual)</button>
+              <button class="btn danger" onclick="resetAllFedexValues()"><i class="ti ti-eraser"></i> Limpiar envío + duties (todos los meses)</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1232,6 +1239,30 @@ function applyAwbs(){
   const m=gm();
   let applied=0, totalShip=0, totalDut=0;
 
+  // Read mode ONCE before the loop
+  const modeEl=document.querySelector('input[name="awb-mode"]:checked');
+  const replaceMode=!modeEl||modeEl.value==='replace';
+
+  // For replace mode: first pass to zero out affected fields on affected orders
+  // so multiple AWBs for the same order accumulate correctly within this batch
+  if(replaceMode){
+    const affectedOrders=new Set();
+    const affectedShip=new Set();
+    const affectedDut=new Set();
+    pendingAwbs.forEach((e,i)=>{
+      const sel=document.getElementById('awb-sel-'+i);
+      if(!sel) return;
+      const orderNum=sel.value;
+      if(!orderNum||orderNum==='__skip__') return;
+      if(e.shippingARS>0) affectedShip.add(orderNum);
+      if(e.dutiesARS>0) affectedDut.add(orderNum);
+    });
+    m.orders.forEach(o=>{
+      if(affectedShip.has(o.num)) o.shippingARS='0';
+      if(affectedDut.has(o.num)) o.dutiesARS='0';
+    });
+  }
+
   pendingAwbs.forEach((e,i)=>{
     const sel=document.getElementById('awb-sel-'+i);
     if(!sel) return;
@@ -1239,19 +1270,11 @@ function applyAwbs(){
     if(!orderNum||orderNum==='__skip__') return;
     const order=m.orders.find(o=>o.num===orderNum);
     if(!order) return;
-    // Store shipping/duties in ARS (pesos) — conversion to USD happens at display time
     const shipARS=e.shippingARS||0;
     const dutARS=e.dutiesARS||0;
-    const modeEl=document.querySelector('input[name="awb-mode"]:checked');
-    const replaceMode=!modeEl||modeEl.value==='replace';
-    if(shipARS>0){
-      order.shippingARS=replaceMode ? shipARS.toFixed(2) : ((parseFloat(order.shippingARS)||0)+shipARS).toFixed(2);
-      totalShip+=shipARS;
-    }
-    if(dutARS>0){
-      order.dutiesARS=replaceMode ? dutARS.toFixed(2) : ((parseFloat(order.dutiesARS)||0)+dutARS).toFixed(2);
-      totalDut+=dutARS;
-    }
+    // Always accumulate within this batch (replace already zeroed existing values above)
+    if(shipARS>0){ order.shippingARS=((parseFloat(order.shippingARS)||0)+shipARS).toFixed(2); totalShip+=shipARS; }
+    if(dutARS>0){ order.dutiesARS=((parseFloat(order.dutiesARS)||0)+dutARS).toFixed(2); totalDut+=dutARS; }
     // Deposit = depCost (USD) * pieces — only from transport invoices that report pieces
     if(e.pieces>0 && e.depositCost>0){ order.handling=e.depositCost.toFixed(2); }
     applied++;
@@ -1436,6 +1459,23 @@ function resetAllCostValues(){
   });
   schedSave(); renderAll();
   alert('✓ Costo de productos limpiado en todos los meses. Envío y duties se mantuvieron. Reimportá los CSV de costos.');
+}
+
+function resetFedexValues(){
+  if(!confirm('¿Limpiar SOLO envío y duties del mes '+cur+'?\nProductos, ventas y todo lo demás se mantiene.'))return;
+  const m=gm();
+  m.orders.forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
+  schedSave(); renderAll();
+  alert('✓ Envío y duties limpiados en '+cur+'. Volvé a subir las facturas de FedEx con modo Reemplazar.');
+}
+
+function resetAllFedexValues(){
+  if(!confirm('¿Limpiar envío y duties de TODOS los meses?\nProductos, ventas y todo lo demás se mantiene.'))return;
+  Object.values(S.months||{}).forEach(month=>{
+    (month.orders||[]).forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
+  });
+  schedSave(); renderAll();
+  alert('✓ Envío y duties limpiados en todos los meses. Volvé a subir las facturas de FedEx con modo Reemplazar.');
 }
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
 
