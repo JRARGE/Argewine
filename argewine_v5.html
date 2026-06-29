@@ -64,6 +64,10 @@ table{width:100%;border-collapse:collapse;font-size:11px}
 th{text-align:left;font-weight:500;color:var(--text2);padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg);position:sticky;top:0}
 td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
+.editable-cell{transition:background .12s}
+.editable-cell:hover{background:var(--bg2)}
+.edit-pencil{font-size:10px;color:var(--text3);opacity:0;transition:opacity .12s;margin-left:2px}
+.editable-cell:hover .edit-pencil{opacity:1}
 .badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:var(--r);font-size:11px;font-weight:500}
 .badge.ok{background:var(--ok-bg);color:var(--ok)}
 .badge.warn{background:var(--warn-bg);color:var(--warn)}
@@ -328,6 +332,9 @@ tr:last-child td{border-bottom:none}
         </div>
       </div>
       <div class="card" style="padding:0">
+        <div style="padding:8px 12px;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
+          <i class="ti ti-pencil" style="font-size:11px"></i> Tocá las columnas <strong>Envío</strong> o <strong>Duties</strong> para editar el monto en pesos si la IA leyó mal una factura.
+        </div>
         <div class="tbl-wrap">
           <table>
             <thead><tr><th>Pedido</th><th>Tracking</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
@@ -932,8 +939,8 @@ function renderOrders(){
       <td style="font-size:10px;font-family:monospace;color:var(--text2)">${trk}</td>
       <td>$${u.sale.toFixed(2)}</td>
       <td style="${!hasProd?'color:var(--text3)':''}" title="${hasProd?'$'+parseFloat(o.productCostARS).toLocaleString('es-AR')+' ARS':''}">$${u.product.toFixed(2)}</td>
-      <td style="${!hasShip?'color:var(--text3)':''}" title="${hasShip?'$'+parseFloat(o.shippingARS).toLocaleString('es-AR')+' ARS':''}">$${u.shipping.toFixed(2)}</td>
-      <td style="${!hasDut?'color:var(--text3)':''}" title="${hasDut?'$'+parseFloat(o.dutiesARS).toLocaleString('es-AR')+' ARS':''}">$${u.duties.toFixed(2)}</td>
+      <td class="editable-cell" onclick="editFedexValue(${i},'shipping')" title="${hasShip?'$'+parseFloat(o.shippingARS).toLocaleString('es-AR')+' ARS — clic para editar':'Clic para editar'}" style="${!hasShip?'color:var(--text3)':''};cursor:pointer">$${u.shipping.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
+      <td class="editable-cell" onclick="editFedexValue(${i},'duties')" title="${hasDut?'$'+parseFloat(o.dutiesARS).toLocaleString('es-AR')+' ARS — clic para editar':'Clic para editar'}" style="${!hasDut?'color:var(--text3)':''};cursor:pointer">$${u.duties.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
       <td>$${u.deposit.toFixed(2)}</td>
       <td style="font-weight:600;color:${pr>=0?'var(--ok)':'var(--err)'}">$${pr.toFixed(2)}</td>
       <td><span class="dot ${dc}"></span>${sl}</td>
@@ -962,6 +969,36 @@ function clearOrderForm(){
   const dep=localStorage.getItem('aw_dep'); if(dep) document.getElementById('o-dep').value=dep;
 }
 function delOrder(i){ if(!confirm('¿Eliminás este pedido?'))return; gm().orders.splice(i,1); schedSave(); renderOrders(); renderDashboard(); }
+
+function editFedexValue(i, field){
+  const m=gm();
+  const o=m.orders[i];
+  if(!o) return;
+  const fx=getFx();
+  const label=field==='shipping'?'envío':'duties';
+  const arsField=field==='shipping'?'shippingARS':'dutiesARS';
+  const currentARS=parseFloat(o[arsField])||0;
+  const currentUSD=fx>0?(currentARS/fx):0;
+
+  const msg=`Editar costo de ${label} para el pedido ${o.num}\n\n`+
+    `Ingresá el monto en PESOS (ARS) como aparece en la factura.\n`+
+    (currentARS>0?`Valor actual: $${currentARS.toLocaleString('es-AR')} ARS (= $${currentUSD.toFixed(2)} USD al cambio $${fx})`:'Sin valor cargado.');
+
+  const input=prompt(msg, currentARS>0?currentARS:'');
+  if(input===null) return; // cancelado
+
+  const cleaned=input.trim();
+  if(cleaned===''){
+    // vaciar el campo
+    o[arsField]='';
+    schedSave(); renderOrders(); renderDashboard();
+    return;
+  }
+  const newARS=parseFloat(cleaned.replace(/[^0-9.,-]/g,'').replace(/\./g,'').replace(',','.')) || parseFloat(cleaned.replace(/[^0-9.-]/g,''));
+  if(isNaN(newARS)||newARS<0){ alert('Monto inválido. Ingresá un número en pesos.'); return; }
+  o[arsField]=newARS.toFixed(2);
+  schedSave(); renderOrders(); renderDashboard();
+}
 
 // ===== GASTOS =====
 function renderExpenses(){
