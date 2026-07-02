@@ -127,6 +127,7 @@ tr:last-child td{border-bottom:none}
 .save-indicator{font-size:11px;color:var(--text3);display:flex;align-items:center;gap:4px}
 .save-indicator.saving{color:var(--warn)}
 .save-indicator.saved{color:var(--ok)}
+.save-indicator.warn{color:var(--warn);font-weight:500}
 </style>
 </head>
 <body>
@@ -578,6 +579,7 @@ let pendingTxs = [];
 let driveFileId = null;
 let saveTimer = null;
 let indTimer = null;
+let driveSyncReady = false; // evita subir a Drive antes de haber cargado la última versión
 const DATA_FILENAME = 'argewine_data.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
@@ -699,11 +701,13 @@ async function driveReq(method, path, body, contentType){
 async function findOrCreateDataFile(){
   try{
     const res = await driveReq('GET', `/drive/v3/files?q=${encodeURIComponent("name='"+DATA_FILENAME+"' and trashed=false")}&fields=files(id,name,modifiedTime)&spaces=drive`);
-    if(!res) return;
+    if(!res){ driveSyncReady = true; return; }
     if(res.files && res.files.length > 0){
       driveFileId = res.files[0].id;
-      await loadFromDrive();
-      setSaveInd('saved', 'Datos cargados desde Drive');
+      const result = await loadFromDrive();
+      if(result==='drive') setSaveInd('saved', 'Última versión cargada desde Drive ✓');
+      else if(result==='local') setSaveInd('saved', 'Tus datos locales eran más nuevos — subidos a Drive ✓');
+      else setSaveInd('saved', 'Conectado a Drive');
       renderAll();
     } else {
       await saveToDrive(true);
@@ -711,21 +715,43 @@ async function findOrCreateDataFile(){
     const info = document.getElementById('drive-info');
     if(info) info.textContent = driveFileId ? 'Archivo: '+DATA_FILENAME+' (ID: '+driveFileId.substring(0,14)+'...)' : '';
   }catch(e){ console.error('findOrCreate error:', e); }
+  driveSyncReady = true;
 }
 
 async function loadFromDrive(){
-  if(!driveFileId) return;
+  if(!driveFileId) return 'none';
   try{
     const text = await driveReq('GET', `/drive/v3/files/${driveFileId}?alt=media`);
-    if(!text) return;
+    if(!text) return 'none';
     const data = typeof text === 'string' ? JSON.parse(text) : text;
-    if(data && data.months) S = data;
-  }catch(e){ console.error('Drive load error:', e); }
+    if(!data || !data.months) return 'none';
+
+    const driveTime = data._lastModified || 0;
+    const localTime = S._lastModified || 0;
+    const localHasData = S.months && Object.keys(S.months).length > 0;
+
+    if(!localHasData || driveTime >= localTime){
+      // Drive es más nuevo (o local está vacío): usar Drive
+      S = data;
+      sv(); // sincronizar copia local
+      return 'drive';
+    } else {
+      // Local es más nuevo que Drive (ej: se trabajó sin conexión): subir local a Drive
+      await saveToDrive();
+      return 'local';
+    }
+  }catch(e){ console.error('Drive load error:', e); return 'error'; }
 }
 
 async function saveToDrive(create=false){
   const token = getToken();
   if(!token){ setSaveInd('saved','Guardado localmente'); return; }
+  if(!driveSyncReady && !create){
+    // Todavía no terminó la carga inicial desde Drive — guardar solo local para no pisar la nube.
+    // findOrCreateDataFile subirá los datos locales si son más nuevos.
+    setSaveInd('saved','Guardado localmente (sincronizando con Drive...)');
+    return;
+  }
   try{
     const content = JSON.stringify(S, null, 2);
     const metadata = JSON.stringify({ name: DATA_FILENAME, mimeType:'application/json' });
@@ -781,7 +807,8 @@ function setSaveInd(cls, txt){
   const el = document.getElementById('save-ind');
   if(!el) return;
   el.className='save-indicator '+(cls||'');
-  el.innerHTML = txt ? (cls==='saving'?'<div class="spinner"></div>':'<i class="ti ti-check"></i>')+' '+txt : '';
+  const icon = cls==='saving' ? '<div class="spinner"></div>' : cls==='warn' ? '<i class="ti ti-alert-triangle"></i>' : '<i class="ti ti-check"></i>';
+  el.innerHTML = txt ? icon+' '+txt : '';
 }
 
 // ===== LOCAL STORAGE =====
@@ -839,7 +866,7 @@ function migrateData(){
   S._migratedV11 = true;
   sv();
 }
-function sv(){ try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
+function sv(){ S._lastModified = Date.now(); try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
 function ld(){
   try{ const d=localStorage.getItem(LS); if(d) S=JSON.parse(d); }catch(e){}
   const k=localStorage.getItem('aw_ckey'); if(k) document.getElementById('claude-key').value=k;
@@ -860,8 +887,14 @@ function ld(){
       }catch(e){ setDriveStatus('disconnected'); }
     }, 300);
   } else {
+    const wasConnected = ts > 0;
     if(token) localStorage.removeItem('aw_drive_token'); // expired
     setDriveStatus('disconnected');
+    driveSyncReady = true; // sin Drive, los guardados quedan locales
+    if(wasConnected){
+      // Este dispositivo estuvo conectado antes: avisar que puede estar viendo datos viejos
+      setSaveInd('warn', 'Drive desconectado — reconectá en Config para ver lo último');
+    }
   }
 }
 
@@ -1024,8 +1057,8 @@ function editFedexValue(i, field){
     schedSave(); renderOrders(); renderDashboard();
     return;
   }
-  const newARS=parseFloat(cleaned.replace(/[^0-9.,-]/g,'').replace(/\./g,'').replace(',','.')) || parseFloat(cleaned.replace(/[^0-9.-]/g,''));
-  if(isNaN(newARS)||newARS<0){ alert('Monto inválido. Ingresá un número en pesos.'); return; }
+  const newARS=parseFlexibleNumber(cleaned);
+  if(newARS===null||isNaN(newARS)||newARS<0){ alert('Monto inválido. Ingresá un número en pesos.'); return; }
   o[arsField]=newARS.toFixed(2);
   schedSave(); renderOrders(); renderDashboard();
 }
@@ -1771,6 +1804,29 @@ function importCostCSV(file){
       `${pendingCSV.length} pedidos listos. El costo se guarda en pesos y se convierte a USD al mostrar` + (fx>0?` (TC actual: $${fx.toLocaleString('es-AR')})`:' (configurá el tipo de cambio en Config)');
     document.getElementById('csv-preview').style.display = 'block';
   });
+}
+
+// Parser flexible: detecta si el separador decimal es "." o "," según el formato.
+// "87074.40" -> 87074.40 | "87.074,40" -> 87074.40 | "87,074.40" -> 87074.40 | "87074" -> 87074
+function parseFlexibleNumber(raw){
+  let s=(raw||'').toString().replace(/[^0-9.,-]/g,'');
+  if(!s) return null;
+  const hasDot=s.includes('.'), hasComma=s.includes(',');
+  if(hasDot&&hasComma){
+    // El que aparece último es el separador decimal
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')){ s=s.replace(/\./g,'').replace(',','.'); }
+    else { s=s.replace(/,/g,''); }
+  } else if(hasComma){
+    // Solo coma: si hay <=2 dígitos después, es decimal; sino son miles
+    const after=s.split(',').pop();
+    s = after.length<=2 ? s.replace(',','.') : s.replace(/,/g,'');
+  } else if(hasDot){
+    // Solo punto: si hay <=2 dígitos después del último, es decimal; sino son miles
+    const after=s.split('.').pop();
+    if(after.length>2 || (s.match(/\./g)||[]).length>1){ s=s.replace(/\./g,''); }
+  }
+  const n=parseFloat(s);
+  return isNaN(n)?null:n;
 }
 
 function parseCSVText(text){
