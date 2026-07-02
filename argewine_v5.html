@@ -755,7 +755,7 @@ async function saveToDrive(create=false){
   try{
     const content = JSON.stringify(S, null, 2);
     const metadata = JSON.stringify({ name: DATA_FILENAME, mimeType:'application/json' });
-    const boundary = 'argewine_boundary_xyz';
+    const boundary = 'argewine_bnd_'+Date.now()+'_'+Math.random().toString(36).slice(2);
     const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${boundary}--`;
 
     let url, method;
@@ -771,8 +771,19 @@ async function saveToDrive(create=false){
       headers:{ Authorization:'Bearer '+token, 'Content-Type':`multipart/related; boundary=${boundary}` },
       body
     });
-    if(r.status === 401){ localStorage.removeItem('aw_drive_token'); setDriveStatus('disconnected'); setSaveInd('saved','Guardado localmente (Drive desconectado)'); return; }
-    if(!r.ok){ setSaveInd('saved','Guardado localmente (error en Drive)'); return; }
+    if(r.status === 401){ localStorage.removeItem('aw_drive_token'); setDriveStatus('disconnected'); setSaveInd('warn','Sesión de Drive vencida — reconectá en Config'); return; }
+    if((r.status === 404 || r.status === 403) && !create && driveFileId){
+      // El archivo fue borrado o perdimos acceso — recrear uno nuevo
+      driveFileId = null;
+      return await saveToDrive(true);
+    }
+    if(!r.ok){
+      let detail='';
+      try{ const ed=await r.json(); if(ed.error) detail=ed.error.message||''; }catch(e){}
+      setSaveInd('warn','Error Drive '+r.status+(detail?': '+detail:'')+' — guardado local OK');
+      console.error('Drive save failed:', r.status, detail);
+      return;
+    }
     // Success is based on HTTP status, not on json.id (PATCH doesn't always return it)
     try{ const json = await r.json(); if(json && json.id) driveFileId = json.id; }catch(e){}
     setSaveInd('saved','Guardado en Drive ✓');
@@ -798,9 +809,19 @@ function schedSave(){
   }, 12000);
 }
 
-function forceSave(){
-  if(getToken()){ saveToDrive(); }
-  else { sv(); setSaveInd('saved','Guardado localmente'); alert('Sin Drive conectado — guardado solo en el navegador.'); }
+async function forceSave(){
+  if(!getToken()){ sv(); setSaveInd('saved','Guardado localmente'); alert('Sin Drive conectado — guardado solo en el navegador.'); return; }
+  sv();
+  setSaveInd('saving','Guardando en Drive...');
+  driveSyncReady = true; // el usuario pidió guardar explícitamente
+  // Si no tenemos referencia al archivo, buscarlo o crearlo primero
+  if(!driveFileId){
+    try{
+      const res = await driveReq('GET', `/drive/v3/files?q=${encodeURIComponent("name='"+DATA_FILENAME+"' and trashed=false")}&fields=files(id)&spaces=drive`);
+      if(res && res.files && res.files.length>0) driveFileId = res.files[0].id;
+    }catch(e){}
+  }
+  await saveToDrive(!driveFileId);
 }
 
 function setSaveInd(cls, txt){
