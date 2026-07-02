@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Argewine — Costos & Ganancias</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -196,7 +199,7 @@ tr:last-child td{border-bottom:none}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine</h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v22</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -473,6 +476,7 @@ tr:last-child td{border-bottom:none}
             <button class="btn" id="drive-disconnect-btn" onclick="disconnectDrive()" style="display:none"><i class="ti ti-unlink"></i> Desconectar</button>
           </div>
           <div id="drive-info" style="font-size:12px;color:var(--text2)"></div>
+          <div id="drive-diag" style="font-size:11px;color:var(--err);margin-top:6px;font-family:monospace;word-break:break-word"></div>
           <!-- INSTRUCCIONES SETUP -->
           <div class="banner info" style="margin-top:10px">
             <i class="ti ti-info-circle" style="flex-shrink:0"></i>
@@ -781,9 +785,12 @@ async function saveToDrive(create=false){
       let detail='';
       try{ const ed=await r.json(); if(ed.error) detail=ed.error.message||''; }catch(e){}
       setSaveInd('warn','Error Drive '+r.status+(detail?': '+detail:'')+' — guardado local OK');
+      const diag=document.getElementById('drive-diag');
+      if(diag) diag.textContent='Último error de Drive: HTTP '+r.status+(detail?' — '+detail:'')+' ('+new Date().toLocaleTimeString('es-AR')+')';
       console.error('Drive save failed:', r.status, detail);
       return;
     }
+    const okDiag=document.getElementById('drive-diag'); if(okDiag) okDiag.textContent='';
     // Success is based on HTTP status, not on json.id (PATCH doesn't always return it)
     try{ const json = await r.json(); if(json && json.id) driveFileId = json.id; }catch(e){}
     setSaveInd('saved','Guardado en Drive ✓');
