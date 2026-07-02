@@ -301,9 +301,9 @@ tr:last-child td{border-bottom:none}
           Exportá tus pedidos desde Shopify (Orders → Export → CSV) y subí el archivo. La app completa el campo <strong>Venta</strong> de cada pedido con el Total que pagó el cliente, cruzando por número de pedido.
         </p>
         <div class="upload-zone" onclick="document.getElementById('shopify-imp').click()">
-          <input type="file" id="shopify-imp" accept=".csv" onchange="importShopifyCSV(this.files[0])">
+          <input type="file" id="shopify-imp" accept=".csv,.xlsx,.xls" onchange="importShopifyCSV(this.files[0])">
           <i class="ti ti-shopping-cart" style="font-size:24px;margin-bottom:5px"></i>
-          <div style="font-size:13px;font-weight:500">Subir CSV de pedidos de Shopify</div>
+          <div style="font-size:13px;font-weight:500">Subir ventas de Shopify (CSV o Excel)</div>
           <div style="font-size:11px;margin-top:2px">Reconoce "Nombre del pedido / Ventas totales" o "Name / Total"</div>
         </div>
         <div id="shopify-preview" style="margin-top:8px;display:none">
@@ -502,9 +502,18 @@ tr:last-child td{border-bottom:none}
           <span class="lbl">API Key</span>
           <input type="password" id="claude-key" placeholder="sk-ant-..." style="width:260px;font-family:monospace">
         </div>
+        <div class="row">
+          <span class="lbl">Modelo</span>
+          <select id="claude-model" onchange="saveModel()" style="width:200px">
+            <option value="claude-sonnet-4-5">Sonnet 4.5 (recomendado)</option>
+            <option value="claude-opus-4-8">Opus 4.8 (más potente)</option>
+            <option value="claude-haiku-4-5">Haiku 4.5 (más rápido/barato)</option>
+            <option value="claude-sonnet-5">Sonnet 5</option>
+          </select>
+        </div>
         <div class="btn-row">
           <button class="btn primary" onclick="saveClaudeKey()"><i class="ti ti-check"></i> Guardar</button>
-          <button class="btn" onclick="testClaudeKey()"><i class="ti ti-plug"></i> Probar</button>
+          <button class="btn" onclick="testClaudeKey()"><i class="ti ti-plug"></i> Probar conexión</button>
         </div>
         <div id="claude-key-status" style="font-size:12px;margin-top:6px"></div>
       </div>
@@ -815,6 +824,7 @@ function sv(){ try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
 function ld(){
   try{ const d=localStorage.getItem(LS); if(d) S=JSON.parse(d); }catch(e){}
   const k=localStorage.getItem('aw_ckey'); if(k) document.getElementById('claude-key').value=k;
+  const mdl=localStorage.getItem('aw_model'); if(mdl){ const sel=document.getElementById('claude-model'); if(sel) sel.value=mdl; }
   const fx=localStorage.getItem('aw_fx'); if(fx) document.getElementById('cfg-fx').value=fx;
   const dep=localStorage.getItem('aw_dep'); if(dep) document.getElementById('cfg-dep').value=dep;
   const gc=localStorage.getItem('aw_gclient'); if(gc) document.getElementById('gclient-id').value=gc;
@@ -1060,15 +1070,18 @@ async function callClaude(messages, maxTokens=4000){
         'x-api-key':key,
         'anthropic-dangerous-direct-browser-access':'true'
       },
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:maxTokens,messages})
+      body:JSON.stringify({model:(localStorage.getItem('aw_model')||'claude-sonnet-4-5'),max_tokens:maxTokens,messages})
     });
   }catch(netErr){
     throw new Error('No se pudo conectar con la API de Claude. Verificá tu conexión a internet y que la API key sea válida. (Detalle: '+netErr.message+')');
   }
   if(!r.ok){
-    let msg='Error '+r.status;
-    try{ const ed=await r.json(); if(ed.error) msg=ed.error.message||msg; }catch(e){}
-    if(r.status===401) msg='API key inválida o vencida. Revisá la key en Config.';
+    let apiMsg='';
+    try{ const ed=await r.json(); if(ed.error) apiMsg=ed.error.message||''; }catch(e){}
+    let msg='Error '+r.status+(apiMsg?': '+apiMsg:'');
+    if(r.status===401) msg='Error 401 (autenticación): '+(apiMsg||'la API key no fue aceptada. Verificá que esté completa y sin espacios.');
+    if(r.status===400) msg='Error 400 (solicitud): '+(apiMsg||'revisá el modelo configurado en Config.');
+    if(r.status===404) msg='Error 404: el modelo configurado no existe. Cambiá el modelo en Config.';
     if(r.status===429) msg='Límite de uso alcanzado en la API. Esperá un momento y reintentá.';
     if(r.status===529) msg='La API de Claude está sobrecargada. Reintentá en unos segundos.';
     throw new Error(msg);
@@ -1544,11 +1557,16 @@ function applyTxs(){
 
 // ===== CLAUDE KEY =====
 function saveClaudeKey(){
-  const k=document.getElementById('claude-key').value.trim();
+  // Strip all whitespace including invisible/non-breaking chars that break the key
+  let k=document.getElementById('claude-key').value.replace(/[\s\u00A0\u200B-\u200D\uFEFF]/g,'');
   if(!k){ alert('Ingresá la API key'); return; }
   localStorage.setItem('aw_ckey',k);
-  document.getElementById('claude-key-status').textContent='✓ API key guardada.';
+  document.getElementById('claude-key').value=k;
+  document.getElementById('claude-key-status').textContent='✓ API key guardada. Tocá "Probar conexión" para verificar.';
   document.getElementById('claude-key-status').style.color='var(--ok)';
+}
+function saveModel(){
+  localStorage.setItem('aw_model', document.getElementById('claude-model').value);
 }
 async function testClaudeKey(){
   const k=document.getElementById('claude-key').value.trim()||getClaudeKey();
