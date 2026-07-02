@@ -533,8 +533,15 @@ tr:last-child td{border-bottom:none}
         <div class="card-title"><i class="ti ti-database"></i> Datos locales</div>
         <div class="btn-row">
           <button class="btn" onclick="exportJSON()"><i class="ti ti-download"></i> Descargar backup JSON</button>
-          <button class="btn" onclick="document.getElementById('imp-f').click()"><i class="ti ti-upload"></i> Importar JSON</button>
-          <input type="file" id="imp-f" accept=".json" style="display:none" onchange="importJSON(this.files[0])">
+          <button class="btn primary" onclick="document.getElementById('merge-f').click()"><i class="ti ti-git-merge"></i> Combinar backup (sin pisar)</button>
+          <input type="file" id="merge-f" accept=".json" style="display:none" onchange="mergeJSON(this.files[0]);this.value=''">
+        </div>
+        <p style="font-size:11px;color:var(--text2);margin:6px 0 0">
+          <strong>Combinar</strong> une los meses y pedidos de otro dispositivo con los tuyos sin borrar nada. Ideal para juntar datos de la tablet y la PC.
+        </p>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn" onclick="if(confirm('Importar REEMPLAZA todos tus datos actuales por los del archivo. ¿Seguro? (Para juntar datos sin perder nada, usá Combinar)'))document.getElementById('imp-f').click()"><i class="ti ti-upload"></i> Importar (reemplaza todo)</button>
+          <input type="file" id="imp-f" accept=".json" style="display:none" onchange="importJSON(this.files[0]);this.value=''">
           <button class="btn danger" onclick="clearMonth()"><i class="ti ti-trash"></i> Borrar mes actual</button>
         </div>
         <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
@@ -570,6 +577,7 @@ let pendingTxs = [];
 // ===== GOOGLE DRIVE — pure fetch, no gapi dependency =====
 let driveFileId = null;
 let saveTimer = null;
+let indTimer = null;
 const DATA_FILENAME = 'argewine_data.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
@@ -717,7 +725,7 @@ async function loadFromDrive(){
 
 async function saveToDrive(create=false){
   const token = getToken();
-  if(!token) return;
+  if(!token){ setSaveInd('saved','Guardado localmente'); return; }
   try{
     const content = JSON.stringify(S, null, 2);
     const metadata = JSON.stringify({ name: DATA_FILENAME, mimeType:'application/json' });
@@ -737,20 +745,31 @@ async function saveToDrive(create=false){
       headers:{ Authorization:'Bearer '+token, 'Content-Type':`multipart/related; boundary=${boundary}` },
       body
     });
-    if(r.status === 401){ localStorage.removeItem('aw_drive_token'); setDriveStatus('disconnected'); return; }
-    const json = await r.json();
-    if(json.id){ driveFileId = json.id; setSaveInd('saved','Guardado en Drive ✓'); }
-  }catch(e){ console.error('Drive save error:', e); setSaveInd('',''); }
+    if(r.status === 401){ localStorage.removeItem('aw_drive_token'); setDriveStatus('disconnected'); setSaveInd('saved','Guardado localmente (Drive desconectado)'); return; }
+    if(!r.ok){ setSaveInd('saved','Guardado localmente (error en Drive)'); return; }
+    // Success is based on HTTP status, not on json.id (PATCH doesn't always return it)
+    try{ const json = await r.json(); if(json && json.id) driveFileId = json.id; }catch(e){}
+    setSaveInd('saved','Guardado en Drive ✓');
+  }catch(e){
+    console.error('Drive save error:', e);
+    setSaveInd('saved','Guardado localmente (sin conexión)');
+  }
 }
 
 function schedSave(){
   setSaveInd('saving', 'Guardando...');
-  sv();
+  sv(); // guarda localmente de inmediato
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     if(getToken()){ saveToDrive(); }
     else { setSaveInd('saved','Guardado localmente'); }
   }, 1500);
+  // Red de seguridad: si por algún motivo el guardado no responde, no dejar el indicador colgado
+  clearTimeout(indTimer);
+  indTimer = setTimeout(()=>{
+    const el=document.getElementById('save-ind');
+    if(el && el.className.indexOf('saving')>=0){ setSaveInd('saved', getToken()?'Guardado':'Guardado localmente'); }
+  }, 12000);
 }
 
 function forceSave(){
@@ -1612,7 +1631,57 @@ function exportCSV(){
 function exportJSON(){ dl(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}),'argewine_backup.json'); }
 function importJSON(file){
   const r=new FileReader();
-  r.onload=()=>{ try{ S=JSON.parse(r.result); schedSave(); changeMonth(); alert('Datos importados ✓'); }catch(e){ alert('Error: '+e.message); } };
+  r.onload=()=>{ try{ S=JSON.parse(r.result); schedSave(); changeMonth(); alert('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ alert('Error: '+e.message); } };
+  r.readAsText(file);
+}
+
+function mergeJSON(file){
+  if(!file) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    let imported;
+    try{ imported=JSON.parse(r.result); }
+    catch(e){ alert('Error leyendo el archivo: '+e.message); return; }
+    if(!imported||!imported.months){ alert('El archivo no tiene el formato esperado.'); return; }
+
+    if(!S.months) S.months={};
+    let mesesNuevos=0, mesesFusionados=0, pedidosAgregados=0, gastosAgregados=0;
+
+    Object.keys(imported.months).forEach(mesKey=>{
+      const impMonth=imported.months[mesKey];
+      if(!S.months[mesKey]){
+        // Mes no existe acá: lo agrego completo
+        S.months[mesKey]=impMonth;
+        mesesNuevos++;
+        pedidosAgregados+=(impMonth.orders||[]).length;
+        gastosAgregados+=(impMonth.expenses||[]).length;
+      } else {
+        // Mes ya existe: fusiono pedidos y gastos sin pisar
+        const local=S.months[mesKey];
+        if(!local.orders) local.orders=[];
+        if(!local.expenses) local.expenses=[];
+        let fusionoAlgo=false;
+        (impMonth.orders||[]).forEach(impOrd=>{
+          const existe=local.orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(impOrd.num));
+          if(!existe){ local.orders.push(impOrd); pedidosAgregados++; fusionoAlgo=true; }
+        });
+        // Gastos: agrego los que no estén (por descripción + monto)
+        (impMonth.expenses||[]).forEach(impExp=>{
+          const existe=local.expenses.find(e=>e.desc===impExp.desc && e.amount===impExp.amount);
+          if(!existe){ local.expenses.push(impExp); gastosAgregados++; fusionoAlgo=true; }
+        });
+        if(fusionoAlgo) mesesFusionados++;
+      }
+    });
+
+    schedSave(); changeMonth();
+    alert(`✓ Combinación completa:\n`+
+      `• ${mesesNuevos} meses nuevos agregados\n`+
+      `• ${mesesFusionados} meses existentes fusionados\n`+
+      `• ${pedidosAgregados} pedidos agregados\n`+
+      `• ${gastosAgregados} gastos agregados\n\n`+
+      `No se pisó ni borró ningún dato que ya tenías.`);
+  };
   r.readAsText(file);
 }
 function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; delete S.months[cur]; schedSave(); renderAll(); }
