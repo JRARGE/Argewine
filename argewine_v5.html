@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Argewine — Costos & Ganancias</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -1409,32 +1410,29 @@ Incluí TODOS los movimientos visibles, no omitas ninguno.`;
   loader.classList.remove('on');
 }
 
-async function processExpenseCSV(file){
+function processExpenseCSV(file){
   if(!file) return;
   const loader=document.getElementById('exp-loader');
   loader.classList.add('on');
   document.getElementById('exp-st').textContent='Leyendo planilla...';
-  try{
-    const text=await new Promise((res,rej)=>{
-      const r=new FileReader(); r.onload=e=>res(e.target.result); r.onerror=()=>rej(new Error('No se pudo leer el archivo')); r.readAsText(file,'UTF-8');
-    });
-    const rows=parseCSVText(text);
-    if(!rows.length) throw new Error('No se encontraron filas en el archivo.');
+  document.getElementById('exp-csv').value='';
+  readTabularFile(file, (rows, err) => {
+    loader.classList.remove('on');
+    if(err){ alert('Error: '+err); return; }
+    if(!rows||!rows.length){ alert('No se encontraron filas en el archivo.'); return; }
     const keys=Object.keys(rows[0]);
-    // detect description and amount columns
     const descKey=keys.find(k=>/desc|concepto|detalle|nombre|detail|name|item/i.test(k))||keys[0];
-    const amtKey=keys.find(k=>/monto|amount|importe|total|valor/i.test(k))||keys[1];
+    const amtKey=keys.find(k=>/monto|amount|importe|total|valor|costo/i.test(k))||keys[1];
     pendingTxs=rows.filter(r=>(r[descKey]||'').trim()).map(r=>({
       date:'',
       description:(r[descKey]||'').trim(),
-      amount:Math.abs(parseFloat((r[amtKey]||'0').replace(/[^0-9.,-]/g,'').replace(',','.'))||0),
+      amount:Math.abs(parseFloat((r[amtKey]||'0').toString().replace(/[^0-9.,-]/g,'').replace(',','.'))||0),
       isLikelyBusiness:false,
       category:'Otro'
     })).filter(t=>t.amount>0);
-    if(!pendingTxs.length) throw new Error('No se encontraron filas con montos válidos.');
+    if(!pendingTxs.length){ alert('No se encontraron filas con montos válidos.'); return; }
     openTxModal(file.name,'','USD');
-  }catch(err){ alert('Error: '+err.message); }
-  loader.classList.remove('on');
+  });
 }
 
 // Keep old name as alias for backward compat
@@ -1641,46 +1639,51 @@ let pendingCSV = [];
 
 function importCostCSV(file){
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const text = e.target.result;
-      const rows = parseCSVText(text);
-      if(!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
-
-      const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
-      const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
-
-      pendingCSV = [];
-      rows.forEach(r => {
-        const num  = (r['Pedido Nº'] || r['Pedido N\u00BA'] || r['Pedido'] || '').trim();
-        const trk  = (r['Nº de Seguimiento'] || r['N\u00BA de Seguimiento'] || r['Tracking'] || '').trim();
-        const arsRaw = r['Costo Productos (Pesos)'] || r['Costo Productos'] || r['Costo'] || '';
-        if(!num) return;
-        const ars = parseCostARS(arsRaw);
-        pendingCSV.push({ num, tracking: trk, productCostARS: ars.toFixed(2), handling: dep.toFixed(2) });
-      });
-
-      if(!pendingCSV.length){ alert('No se pudieron leer filas válidas. Verificá el formato.'); return; }
-
-      // Preview (shows ARS as stored + USD equivalent if FX configured)
-      const tbody = document.getElementById('csv-preview-body');
-      tbody.innerHTML = pendingCSV.map(r => {
-        const usd = fx>0 ? '$'+(parseFloat(r.productCostARS)/fx).toFixed(2) : '(falta TC)';
-        return `<tr>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-family:monospace;font-size:10px">${r.tracking||'-'}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">$${parseFloat(r.productCostARS).toLocaleString('es-AR')}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">${usd}</td>
-        </tr>`;
-      }).join('');
-      document.getElementById('csv-preview-lbl').textContent =
-        `${pendingCSV.length} pedidos listos. El costo se guarda en pesos y se convierte a USD al mostrar` + (fx>0?` (TC actual: $${fx.toLocaleString('es-AR')})`:' (configurá el tipo de cambio en Config)');
-      document.getElementById('csv-preview').style.display = 'block';
-    } catch(err){ alert('Error leyendo archivo: '+err.message); }
-  };
-  reader.readAsText(file, 'UTF-8');
   document.getElementById('csv-imp').value = '';
+  readTabularFile(file, (rows, err) => {
+    if(err){ alert('Error: '+err); return; }
+    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+
+    const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
+    const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
+
+    // Flexible column detection (handles different header spellings)
+    const keys = Object.keys(rows[0]);
+    const numKey = keys.find(k=>/pedido/i.test(k)) || keys[0];
+    const trkKey = keys.find(k=>/seguimiento|tracking|gu[ií]a/i.test(k)) || keys[1];
+    const costKey = keys.find(k=>/costo.*producto|producto.*costo|costo.*pesos|^costo$/i.test(k)) || keys.find(k=>/costo|pesos/i.test(k));
+
+    if(!costKey){
+      alert('No se encontró la columna de costo. Columnas detectadas:\n'+keys.join(', ')+'\n\nEsperaba una columna como "Costo Productos (Pesos)".');
+      return;
+    }
+
+    pendingCSV = [];
+    rows.forEach(r => {
+      const num  = (r[numKey] || '').trim();
+      const trk  = (r[trkKey] || '').trim();
+      const arsRaw = r[costKey] || '';
+      if(!num) return;
+      const ars = parseCostARS(arsRaw);
+      pendingCSV.push({ num, tracking: trk, productCostARS: ars.toFixed(2), handling: dep.toFixed(2) });
+    });
+
+    if(!pendingCSV.length){ alert('No se pudieron leer filas válidas. Verificá el formato.'); return; }
+
+    const tbody = document.getElementById('csv-preview-body');
+    tbody.innerHTML = pendingCSV.map(r => {
+      const usd = fx>0 ? '$'+(parseFloat(r.productCostARS)/fx).toFixed(2) : '(falta TC)';
+      return `<tr>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-family:monospace;font-size:10px">${r.tracking||'-'}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">$${parseFloat(r.productCostARS).toLocaleString('es-AR')}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">${usd}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('csv-preview-lbl').textContent =
+      `${pendingCSV.length} pedidos listos. El costo se guarda en pesos y se convierte a USD al mostrar` + (fx>0?` (TC actual: $${fx.toLocaleString('es-AR')})`:' (configurá el tipo de cambio en Config)');
+    document.getElementById('csv-preview').style.display = 'block';
+  });
 }
 
 function parseCSVText(text){
@@ -1699,6 +1702,41 @@ function parseCSVText(text){
     rows.push(row);
   }
   return rows;
+}
+
+// Universal reader: handles CSV, XLSX and XLS. Returns array of row objects keyed by header.
+// Callback receives (rows) or (null, errorMessage).
+function readTabularFile(file, callback){
+  const name = (file.name||'').toLowerCase();
+  const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
+  if(isExcel){
+    if(typeof XLSX==='undefined'){ callback(null,'No se pudo cargar el lector de Excel. Verificá tu conexión a internet y recargá la página.'); return; }
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const data=new Uint8Array(e.target.result);
+        const wb=XLSX.read(data,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        // sheet_to_json with header row -> array of objects; keys = header names, values as strings
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+        // trim keys to match CSV behavior
+        const cleaned=rows.map(r=>{
+          const o={}; Object.keys(r).forEach(k=>{ o[String(k).trim()]=(r[k]==null?'':String(r[k]).trim()); }); return o;
+        });
+        callback(cleaned);
+      }catch(err){ callback(null,'No se pudo leer el Excel: '+err.message); }
+    };
+    reader.onerror=()=>callback(null,'No se pudo leer el archivo.');
+    reader.readAsArrayBuffer(file);
+  } else {
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{ callback(parseCSVText(e.target.result)); }
+      catch(err){ callback(null,'No se pudo leer el CSV: '+err.message); }
+    };
+    reader.onerror=()=>callback(null,'No se pudo leer el archivo.');
+    reader.readAsText(file,'UTF-8');
+  }
 }
 
 function parseCSVLine(line, sep){
@@ -1771,59 +1809,53 @@ let pendingShopify = [];
 
 function importShopifyCSV(file){
   if(!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const rows = parseCSVText(e.target.result);
-      if(!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
-
-      // Shopify columns: "Name" = order number, "Total" = order total
-      // Total only appears on the first row of each order
-      // Reconoce tanto el export estándar (Name/Total) como el reporte en español (Nombre del pedido/Ventas totales)
-      const firstRow = rows[0] || {};
-      const keys = Object.keys(firstRow);
-      const nameKey = keys.find(k => /^name$/i.test(k.trim())) || keys.find(k => /nombre del pedido/i.test(k.trim())) || keys.find(k => /pedido/i.test(k.trim()));
-      const totalKey = keys.find(k => /^total$/i.test(k.trim())) || keys.find(k => /ventas totales/i.test(k.trim())) || keys.find(k => /total/i.test(k.trim())) || keys.find(k => /ventas/i.test(k.trim()));
-
-      if(!nameKey || !totalKey){
-        alert('No se reconocieron las columnas del CSV.\nColumnas encontradas: '+keys.join(', ')+'\n\nEsperaba "Name"/"Total" o "Nombre del pedido"/"Ventas totales".');
-        return;
-      }
-
-      const seen = {};
-      pendingShopify = [];
-      rows.forEach(r => {
-        const name = (r[nameKey] || '').trim();
-        const totalRaw = (r[totalKey] || '').toString().trim();
-        if(!name) return;
-        if(totalRaw && !seen[name]){
-          const total = parseFloat(totalRaw.replace(/[^0-9.,-]/g,'').replace(/,/g,'')) || 0;
-          seen[name] = true;
-          pendingShopify.push({ num: name, total: total.toFixed(2) });
-        }
-      });
-
-      if(!pendingShopify.length){ alert('No se encontraron pedidos con monto de venta en el archivo.'); return; }
-
-      const m = gm();
-      const tbody = document.getElementById('shopify-preview-body');
-      tbody.innerHTML = pendingShopify.map(r => {
-        const inSystem = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
-        const neg = parseFloat(r.total) < 0;
-        return `<tr>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500;${neg?'color:var(--err)':''}">$${r.total}${neg?' <span class="badge err" style="font-size:9px">reembolso</span>':''}</td>
-          <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
-        </tr>`;
-      }).join('');
-      const matchCount = pendingShopify.filter(r => m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim())).length;
-      document.getElementById('shopify-preview-lbl').textContent =
-        `${pendingShopify.length} pedidos en el CSV · ${matchCount} coinciden con pedidos del sistema`;
-      document.getElementById('shopify-preview').style.display = 'block';
-    } catch(err){ alert('Error leyendo archivo: '+err.message); }
-  };
-  reader.readAsText(file, 'UTF-8');
   document.getElementById('shopify-imp').value = '';
+  readTabularFile(file, (rows, err) => {
+    if(err){ alert('Error: '+err); return; }
+    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+
+    // Reconoce el export estándar (Name/Total) y el reporte en español (Nombre del pedido/Ventas totales)
+    const firstRow = rows[0] || {};
+    const keys = Object.keys(firstRow);
+    const nameKey = keys.find(k => /^name$/i.test(k.trim())) || keys.find(k => /nombre del pedido/i.test(k.trim())) || keys.find(k => /pedido/i.test(k.trim()));
+    const totalKey = keys.find(k => /^total$/i.test(k.trim())) || keys.find(k => /ventas totales/i.test(k.trim())) || keys.find(k => /total/i.test(k.trim())) || keys.find(k => /ventas/i.test(k.trim()));
+
+    if(!nameKey || !totalKey){
+      alert('No se reconocieron las columnas.\nColumnas encontradas: '+keys.join(', ')+'\n\nEsperaba "Name"/"Total" o "Nombre del pedido"/"Ventas totales".');
+      return;
+    }
+
+    const seen = {};
+    pendingShopify = [];
+    rows.forEach(r => {
+      const name = (r[nameKey] || '').trim();
+      const totalRaw = (r[totalKey] || '').toString().trim();
+      if(!name) return;
+      if(totalRaw && !seen[name]){
+        const total = parseFloat(totalRaw.replace(/[^0-9.,-]/g,'').replace(/,/g,'')) || 0;
+        seen[name] = true;
+        pendingShopify.push({ num: name, total: total.toFixed(2) });
+      }
+    });
+
+    if(!pendingShopify.length){ alert('No se encontraron pedidos con monto de venta en el archivo.'); return; }
+
+    const m = gm();
+    const tbody = document.getElementById('shopify-preview-body');
+    tbody.innerHTML = pendingShopify.map(r => {
+      const inSystem = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+      const neg = parseFloat(r.total) < 0;
+      return `<tr>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500;${neg?'color:var(--err)':''}">$${r.total}${neg?' <span class="badge err" style="font-size:9px">reembolso</span>':''}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
+      </tr>`;
+    }).join('');
+    const matchCount = pendingShopify.filter(r => m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim())).length;
+    document.getElementById('shopify-preview-lbl').textContent =
+      `${pendingShopify.length} pedidos en el archivo · ${matchCount} coinciden con pedidos del sistema`;
+    document.getElementById('shopify-preview').style.display = 'block';
+  });
 }
 
 function applyShopifyCSV(){
