@@ -199,29 +199,14 @@ tr:last-child td{border-bottom:none}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v22</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v24</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
       <div class="save-indicator" id="save-ind"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <select id="monthSel" onchange="changeMonth()" style="font-size:12px">
-        <option value="2025-11">Nov 2025</option>
-        <option value="2025-12">Dic 2025</option>
-        <option value="2026-01">Ene 2026</option>
-        <option value="2026-02">Feb 2026</option>
-        <option value="2026-03">Mar 2026</option>
-        <option value="2026-04">Abr 2026</option>
-        <option value="2026-05">May 2026</option>
-        <option value="2026-06" selected>Jun 2026</option>
-        <option value="2026-07">Jul 2026</option>
-        <option value="2026-08">Ago 2026</option>
-        <option value="2026-09">Sep 2026</option>
-        <option value="2026-10">Oct 2026</option>
-        <option value="2026-11">Nov 2026</option>
-        <option value="2026-12">Dic 2026</option>
-      </select>
+      <select id="monthSel" onchange="changeMonth()" style="font-size:12px"></select>
     </div>
   </div>
 
@@ -354,17 +339,57 @@ tr:last-child td{border-bottom:none}
       <div class="banner info">
         <i class="ti ti-info-circle" style="flex-shrink:0;margin-top:1px"></i>
         <div>
-          <strong>Cargá todas tus facturas de FedEx de una vez.</strong><br>
-          La IA lee el <strong>Subtotal ARS individual</strong> de cada envío desde las páginas de detalle. Identifica el pedido por el campo <strong>Referencia</strong> (que tiene el #pedido) y el tracking por el campo <strong>Guía Aérea</strong>. Muestra una advertencia si la suma extraída no coincide con el total de la factura.
+          <strong>Dos formas de cargar los costos de FedEx.</strong><br>
+          La más confiable es exportar el reporte desde FedEx Billing Online (CSV/Excel) — trae envíos y duties de todas las facturas juntos, sin depender de leer PDFs. También podés subir los PDF individuales para que los lea la IA.
+        </div>
+      </div>
+
+      <div class="card" style="border:1.5px solid var(--ok)">
+        <div class="card-title"><i class="ti ti-table-import" style="color:var(--ok)"></i> Importar reporte de FedEx Billing Online (recomendado)</div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
+          En FedEx Billing Online, exportá el reporte de facturas a CSV o Excel. Buscá el que tenga las columnas <strong>Invoice Type</strong>, <strong>Shipper Reference</strong> y <strong>Air Waybill Total Amount</strong>. Subilo acá y se cargan todos los envíos y duties de una, cruzados por número de pedido.
+        </p>
+        <div class="upload-zone" onclick="document.getElementById('fx-report').click()" style="border-color:var(--ok)">
+          <input type="file" id="fx-report" accept=".csv,.xlsx,.xls" onchange="importFedexReport(this.files[0])">
+          <i class="ti ti-file-spreadsheet" style="font-size:24px;margin-bottom:5px;color:var(--ok)"></i>
+          <div style="font-size:13px;font-weight:500">Subir reporte de FedEx (CSV o Excel)</div>
+          <div style="font-size:11px;margin-top:2px">Columnas: Invoice Type · Shipper Reference · Air Waybill Total Amount</div>
+        </div>
+        <div id="fx-report-preview" style="margin-top:8px;display:none">
+          <div id="fx-report-lbl" style="font-size:12px;color:var(--text2);margin-bottom:6px"></div>
+          <div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r)">
+            <table style="width:100%;font-size:11px">
+              <thead><tr>
+                <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:left">Pedido</th>
+                <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:left">Tipo</th>
+                <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:right">Monto ARS</th>
+                <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:center">Match</th>
+              </tr></thead>
+              <tbody id="fx-report-body"></tbody>
+            </table>
+          </div>
+          <div style="display:flex;gap:12px;margin:8px 0;padding:8px;background:var(--bg2);border-radius:var(--r);align-items:center;flex-wrap:wrap">
+            <span style="font-size:12px;font-weight:500">Modo:</span>
+            <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+              <input type="radio" name="fxr-mode" value="replace" checked> <strong>Reemplazar</strong> valores existentes
+            </label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer">
+              <input type="radio" name="fxr-mode" value="add"> <strong>Sumar</strong> a lo existente
+            </label>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" onclick="applyFedexReport()"><i class="ti ti-check"></i> Aplicar a los pedidos</button>
+            <button class="btn" onclick="document.getElementById('fx-report-preview').style.display='none';pendingFxReport=[]">Cancelar</button>
+          </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card-title"><i class="ti ti-file-invoice"></i> Subir facturas FedEx (podés varias a la vez)</div>
+        <div class="card-title"><i class="ti ti-file-invoice"></i> Subir facturas FedEx en PDF (lee la IA)</div>
         <div class="upload-zone" id="fx-drop" onclick="document.getElementById('fx-pdf').click()">
           <input type="file" id="fx-pdf" accept=".pdf" multiple onchange="processFedex(this.files)">
           <i class="ti ti-file-invoice" style="font-size:26px;margin-bottom:5px"></i>
-          <div style="font-size:13px;font-weight:500">Subir facturas de FedEx</div>
+          <div style="font-size:13px;font-weight:500">Subir facturas de FedEx (PDF)</div>
           <div style="font-size:11px;margin-top:2px">Podés seleccionar VARIAS a la vez — detecta tipo, referencia y cajas</div>
         </div>
         <div class="loader" id="fx-loader"><div class="spinner"></div><span id="fx-st">Procesando...</span></div>
@@ -575,7 +600,28 @@ tr:last-child td{border-bottom:none}
 // ===== STATE =====
 const LS = 'argewine_v3';
 let S = { months:{}, cfg:{} };
-let cur = '2026-06';
+function currentMonthKey(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+let cur = currentMonthKey();
+
+function buildMonthSelector(){
+  const sel=document.getElementById('monthSel');
+  if(!sel) return;
+  const NAMES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const opts=[];
+  // Desde Nov 2025 hasta 3 meses después del actual, más cualquier mes con datos
+  const start=new Date(2025,10,1); // Nov 2025
+  const end=new Date(); end.setMonth(end.getMonth()+3);
+  const keys=new Set();
+  for(let d=new Date(start); d<=end; d.setMonth(d.getMonth()+1)){
+    keys.add(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));
+  }
+  Object.keys(S.months||{}).forEach(k=>{ if(/^\d{4}-\d{2}$/.test(k)) keys.add(k); });
+  [...keys].sort().forEach(k=>{
+    const [y,m]=k.split('-');
+    opts.push(`<option value="${k}" ${k===cur?'selected':''}>${NAMES[parseInt(m)-1]} ${y}</option>`);
+  });
+  sel.innerHTML=opts.join('');
+}
 let pendingAwbs = [];
 let pendingTxs = [];
 
@@ -960,11 +1006,13 @@ function normalizeTrack(s){ return (s||'').replace(/\s/g,'').trim(); }
 // ===== DASHBOARD =====
 function renderDashboard(){
   const m=gm();
-  let sales=0,costs=0,gross=0;
+  let sales=0,costs=0;
   m.orders.forEach(o=>{
     const u=orderUSD(o);
-    sales+=u.sale; costs+=u.product+u.shipping+u.duties+u.deposit; gross+=calcProfit(o);
+    sales+=u.sale;
+    costs+=u.product+u.shipping+u.duties+u.deposit;
   });
+  const gross=sales-costs; // ganancia bruta = ventas - costos de pedidos
   const totalExp=m.expenses.reduce((a,e)=>a+(parseFloat(e.amount)||0),0);
   const net=gross-totalExp;
   const ownerPct=parseFloat(localStorage.getItem('aw_ownerpct')||'100');
@@ -1043,6 +1091,8 @@ function renderOrders(){
 function addOrder(){
   const num=document.getElementById('o-num').value.trim();
   if(!num){ alert('Ingresá el número de pedido'); return; }
+  const dup=gm().orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(num));
+  if(dup){ alert('Ya existe el pedido '+dup.num+' en este mes. Editalo en la tabla o usá otro número.'); return; }
   const dep=document.getElementById('o-dep').value||localStorage.getItem('aw_dep')||'3.25';
   gm().orders.push({
     num, tracking:document.getElementById('o-trk').value.trim(),
@@ -1407,6 +1457,124 @@ function openAwbModal(){
 
 function closeOv(id){ document.getElementById(id).classList.remove('on'); }
 
+// ===== FEDEX BILLING ONLINE REPORT IMPORT (CSV/Excel) =====
+let pendingFxReport = [];
+
+function importFedexReport(file){
+  if(!file) return;
+  document.getElementById('fx-report').value='';
+  readTabularFile(file, (rows, err) => {
+    if(err){ alert('Error: '+err); return; }
+    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+
+    const keys = Object.keys(rows[0]);
+    // Detección flexible de columnas del reporte de FedEx Billing Online
+    const typeKey = keys.find(k=>/invoice\s*type/i.test(k)) || keys.find(k=>/\btype\b/i.test(k));
+    const refKey  = keys.find(k=>/shipper\s*reference/i.test(k)) || keys.find(k=>/reference\s*1/i.test(k)) || keys.find(k=>/reference/i.test(k));
+    const amtKey  = keys.find(k=>/air\s*waybill\s*total\s*amount/i.test(k)) || keys.find(k=>/total\s*amount/i.test(k)) || keys.find(k=>/amount/i.test(k));
+    const invKey  = keys.find(k=>/invoice\s*number/i.test(k));
+
+    if(!typeKey || !refKey || !amtKey){
+      alert('No se reconocieron las columnas del reporte de FedEx.\nColumnas encontradas:\n'+keys.join(', ')+'\n\nEsperaba: Invoice Type, Shipper Reference 1, Air Waybill Total Amount');
+      return;
+    }
+
+    const orders = gm().orders;
+    pendingFxReport = [];
+    rows.forEach(r => {
+      const ref = (r[refKey]||'').toString().trim();
+      const typeRaw = (r[typeKey]||'').toString().trim().toLowerCase();
+      const amtRaw = (r[amtKey]||'').toString().trim();
+      // Solo filas con referencia de pedido y monto (las filas vacías son AWBs sin cargo separado)
+      if(!ref || !amtRaw) return;
+      const amount = parseFlexibleNumber(amtRaw);
+      if(amount===null || amount<=0) return;
+
+      // Clasificar tipo: "Transportation" -> shipping, "Duty/Tax" o "Duty" -> duties
+      let type;
+      if(/duty|tax|impuesto|aduana/.test(typeRaw)) type='duties';
+      else if(/transport|env[ií]o|flete|freight/.test(typeRaw)) type='shipping';
+      else type='shipping'; // por defecto, transporte
+
+      // Cruzar con pedido del sistema
+      const matched = orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(ref));
+
+      pendingFxReport.push({
+        orderRef: ref,
+        type,
+        amountARS: amount,
+        matchedOrderNum: matched ? matched.num : '',
+        invoice: invKey ? (r[invKey]||'') : ''
+      });
+    });
+
+    if(!pendingFxReport.length){ alert('No se encontraron filas con pedido y monto válidos en el reporte.'); return; }
+
+    // Preview
+    const tbody = document.getElementById('fx-report-body');
+    tbody.innerHTML = pendingFxReport.map(e=>{
+      const tipoLabel = e.type==='shipping'
+        ? '<span class="badge ok" style="font-size:10px">envío</span>'
+        : '<span class="badge warn" style="font-size:10px">duties</span>';
+      const matchLabel = e.matchedOrderNum
+        ? '<span class="badge ok" style="font-size:10px">'+e.matchedOrderNum+'</span>'
+        : '<span class="badge err" style="font-size:10px">sin pedido</span>';
+      return `<tr>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${e.orderRef}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${tipoLabel}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:right;font-weight:500">$${e.amountARS.toLocaleString('es-AR')}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:center">${matchLabel}</td>
+      </tr>`;
+    }).join('');
+
+    const nShip = pendingFxReport.filter(e=>e.type==='shipping').length;
+    const nDut  = pendingFxReport.filter(e=>e.type==='duties').length;
+    const nMatch = pendingFxReport.filter(e=>e.matchedOrderNum).length;
+    document.getElementById('fx-report-lbl').innerHTML =
+      `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas con pedidos del sistema`;
+    document.getElementById('fx-report-preview').style.display='block';
+  });
+}
+
+function applyFedexReport(){
+  if(!pendingFxReport.length) return;
+  const m = gm();
+  const modeEl = document.querySelector('input[name="fxr-mode"]:checked');
+  const replaceMode = !modeEl || modeEl.value==='replace';
+
+  // En modo reemplazar: primero poner en cero los campos de los pedidos afectados
+  if(replaceMode){
+    const affectShip=new Set(), affectDut=new Set();
+    pendingFxReport.forEach(e=>{
+      if(!e.matchedOrderNum) return;
+      if(e.type==='shipping') affectShip.add(e.matchedOrderNum);
+      else affectDut.add(e.matchedOrderNum);
+    });
+    m.orders.forEach(o=>{
+      if(affectShip.has(o.num)) o.shippingARS='0';
+      if(affectDut.has(o.num)) o.dutiesARS='0';
+    });
+  }
+
+  let applied=0, noMatch=0;
+  pendingFxReport.forEach(e=>{
+    if(!e.matchedOrderNum){ noMatch++; return; }
+    const order = m.orders.find(o=>o.num===e.matchedOrderNum);
+    if(!order){ noMatch++; return; }
+    if(e.type==='shipping'){
+      order.shippingARS = ((parseFloat(order.shippingARS)||0)+e.amountARS).toFixed(2);
+    } else {
+      order.dutiesARS = ((parseFloat(order.dutiesARS)||0)+e.amountARS).toFixed(2);
+    }
+    applied++;
+  });
+
+  pendingFxReport=[];
+  document.getElementById('fx-report-preview').style.display='none';
+  schedSave(); renderOrders(); renderDashboard();
+  alert(`✓ Reporte de FedEx aplicado:\n• ${applied} líneas cargadas a sus pedidos\n• ${noMatch} líneas sin pedido coincidente (se ignoraron)\n\nModo: ${replaceMode?'Reemplazar':'Sumar'}.`);
+}
+
 function applyAwbs(){
   const m=gm();
   let applied=0, totalShip=0, totalDut=0;
@@ -1580,22 +1748,16 @@ function txCardHTML(t, idx, defaultChecked){
 
 function toggleTx(idx){
   const card=document.getElementById('txcard-'+idx);
-  const check=document.getElementById('txcheck-'+idx);
   if(!card) return;
-  const isSelected=card.classList.toggle('selected');
-  check.style.color=isSelected?'#fff':'transparent';
-  check.style.background=isSelected?'var(--info)':'';
-  check.style.borderColor=isSelected?'var(--info)':'';
+  card.classList.toggle('selected');
   updateTxSummary();
 }
 
 function txSelectAll(state){
   pendingTxs.forEach((_,idx)=>{
     const card=document.getElementById('txcard-'+idx);
-    const check=document.getElementById('txcheck-'+idx);
     if(!card) return;
-    if(state){ card.classList.add('selected'); check.style.cssText='color:#fff;background:var(--info);border-color:var(--info)'; }
-    else { card.classList.remove('selected'); check.style.cssText='color:transparent;background:;border-color:'; }
+    card.classList.toggle('selected', state);
   });
   updateTxSummary();
 }
@@ -1603,10 +1765,8 @@ function txSelectAll(state){
 function txSelectBiz(){
   pendingTxs.forEach((t,idx)=>{
     const card=document.getElementById('txcard-'+idx);
-    const check=document.getElementById('txcheck-'+idx);
     if(!card) return;
-    if(t.isLikelyBusiness){ card.classList.add('selected'); check.style.cssText='color:#fff;background:var(--info);border-color:var(--info)'; }
-    else { card.classList.remove('selected'); check.style.cssText='color:transparent;background:;border-color:'; }
+    card.classList.toggle('selected', !!t.isLikelyBusiness);
   });
   updateTxSummary();
 }
@@ -1692,7 +1852,7 @@ function exportCSV(){
 function exportJSON(){ dl(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}),'argewine_backup.json'); }
 function importJSON(file){
   const r=new FileReader();
-  r.onload=()=>{ try{ S=JSON.parse(r.result); schedSave(); changeMonth(); alert('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ alert('Error: '+e.message); } };
+  r.onload=()=>{ try{ S=JSON.parse(r.result); migrateData(); buildMonthSelector(); schedSave(); changeMonth(); alert('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ alert('Error: '+e.message); } };
   r.readAsText(file);
 }
 
@@ -1726,344 +1886,4 @@ function mergeJSON(file){
           const existe=local.orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(impOrd.num));
           if(!existe){ local.orders.push(impOrd); pedidosAgregados++; fusionoAlgo=true; }
         });
-        // Gastos: agrego los que no estén (por descripción + monto)
-        (impMonth.expenses||[]).forEach(impExp=>{
-          const existe=local.expenses.find(e=>e.desc===impExp.desc && e.amount===impExp.amount);
-          if(!existe){ local.expenses.push(impExp); gastosAgregados++; fusionoAlgo=true; }
-        });
-        if(fusionoAlgo) mesesFusionados++;
-      }
-    });
-
-    schedSave(); changeMonth();
-    alert(`✓ Combinación completa:\n`+
-      `• ${mesesNuevos} meses nuevos agregados\n`+
-      `• ${mesesFusionados} meses existentes fusionados\n`+
-      `• ${pedidosAgregados} pedidos agregados\n`+
-      `• ${gastosAgregados} gastos agregados\n\n`+
-      `No se pisó ni borró ningún dato que ya tenías.`);
-  };
-  r.readAsText(file);
-}
-function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; delete S.months[cur]; schedSave(); renderAll(); }
-
-function resetCostValues(){
-  if(!confirm('¿Limpiar SOLO el costo de productos del mes '+cur+'?\nEnvío, duties, ventas y todo lo demás se mantiene intacto. Después reimportá el CSV de costos.'))return;
-  const m=gm();
-  m.orders.forEach(o=>{ o.productCostARS=''; });
-  schedSave(); renderAll();
-  alert('✓ Costo de productos limpiado. Envío y duties se mantuvieron. Reimportá el CSV de costos.');
-}
-
-function resetAllCostValues(){
-  if(!confirm('¿Limpiar SOLO el costo de productos de TODOS los meses?\nEnvío, duties y ventas se mantienen intactos.'))return;
-  Object.values(S.months||{}).forEach(month=>{
-    (month.orders||[]).forEach(o=>{ o.productCostARS=''; });
-  });
-  schedSave(); renderAll();
-  alert('✓ Costo de productos limpiado en todos los meses. Envío y duties se mantuvieron. Reimportá los CSV de costos.');
-}
-
-function resetFedexValues(){
-  if(!confirm('¿Limpiar SOLO envío y duties del mes '+cur+'?\nProductos, ventas y todo lo demás se mantiene.'))return;
-  const m=gm();
-  m.orders.forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
-  schedSave(); renderAll();
-  alert('✓ Envío y duties limpiados en '+cur+'. Volvé a subir las facturas de FedEx con modo Reemplazar.');
-}
-
-function resetAllFedexValues(){
-  if(!confirm('¿Limpiar envío y duties de TODOS los meses?\nProductos, ventas y todo lo demás se mantiene.'))return;
-  Object.values(S.months||{}).forEach(month=>{
-    (month.orders||[]).forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
-  });
-  schedSave(); renderAll();
-  alert('✓ Envío y duties limpiados en todos los meses. Volvé a subir las facturas de FedEx con modo Reemplazar.');
-}
-function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
-
-// ===== CSV IMPORT DE COSTOS =====
-let pendingCSV = [];
-
-function importCostCSV(file){
-  if(!file) return;
-  document.getElementById('csv-imp').value = '';
-  readTabularFile(file, (rows, err) => {
-    if(err){ alert('Error: '+err); return; }
-    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
-
-    const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
-    const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
-
-    // Flexible column detection (handles different header spellings)
-    const keys = Object.keys(rows[0]);
-    const numKey = keys.find(k=>/pedido/i.test(k)) || keys[0];
-    const trkKey = keys.find(k=>/seguimiento|tracking|gu[ií]a/i.test(k)) || keys[1];
-    const costKey = keys.find(k=>/costo.*producto|producto.*costo|costo.*pesos|^costo$/i.test(k)) || keys.find(k=>/costo|pesos/i.test(k));
-
-    if(!costKey){
-      alert('No se encontró la columna de costo. Columnas detectadas:\n'+keys.join(', ')+'\n\nEsperaba una columna como "Costo Productos (Pesos)".');
-      return;
-    }
-
-    pendingCSV = [];
-    rows.forEach(r => {
-      const num  = (r[numKey] || '').trim();
-      const trk  = (r[trkKey] || '').trim();
-      const arsRaw = r[costKey] || '';
-      if(!num) return;
-      const ars = parseCostARS(arsRaw);
-      pendingCSV.push({ num, tracking: trk, productCostARS: ars.toFixed(2), handling: dep.toFixed(2) });
-    });
-
-    if(!pendingCSV.length){ alert('No se pudieron leer filas válidas. Verificá el formato.'); return; }
-
-    const tbody = document.getElementById('csv-preview-body');
-    tbody.innerHTML = pendingCSV.map(r => {
-      const usd = fx>0 ? '$'+(parseFloat(r.productCostARS)/fx).toFixed(2) : '(falta TC)';
-      return `<tr>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-family:monospace;font-size:10px">${r.tracking||'-'}</td>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">$${parseFloat(r.productCostARS).toLocaleString('es-AR')}</td>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">${usd}</td>
-      </tr>`;
-    }).join('');
-    document.getElementById('csv-preview-lbl').textContent =
-      `${pendingCSV.length} pedidos listos. El costo se guarda en pesos y se convierte a USD al mostrar` + (fx>0?` (TC actual: $${fx.toLocaleString('es-AR')})`:' (configurá el tipo de cambio en Config)');
-    document.getElementById('csv-preview').style.display = 'block';
-  });
-}
-
-// Parser flexible: detecta si el separador decimal es "." o "," según el formato.
-// "87074.40" -> 87074.40 | "87.074,40" -> 87074.40 | "87,074.40" -> 87074.40 | "87074" -> 87074
-function parseFlexibleNumber(raw){
-  let s=(raw||'').toString().replace(/[^0-9.,-]/g,'');
-  if(!s) return null;
-  const hasDot=s.includes('.'), hasComma=s.includes(',');
-  if(hasDot&&hasComma){
-    // El que aparece último es el separador decimal
-    if(s.lastIndexOf(',')>s.lastIndexOf('.')){ s=s.replace(/\./g,'').replace(',','.'); }
-    else { s=s.replace(/,/g,''); }
-  } else if(hasComma){
-    // Solo coma: si hay <=2 dígitos después, es decimal; sino son miles
-    const after=s.split(',').pop();
-    s = after.length<=2 ? s.replace(',','.') : s.replace(/,/g,'');
-  } else if(hasDot){
-    // Solo punto: si hay <=2 dígitos después del último, es decimal; sino son miles
-    const after=s.split('.').pop();
-    if(after.length>2 || (s.match(/\./g)||[]).length>1){ s=s.replace(/\./g,''); }
-  }
-  const n=parseFloat(s);
-  return isNaN(n)?null:n;
-}
-
-function parseCSVText(text){
-  // Detect separator
-  const sep = text.indexOf(';') > text.indexOf(',') ? ';' : ',';
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if(lines.length < 2) return [];
-
-  const headers = parseCSVLine(lines[0], sep);
-  const rows = [];
-  for(let i = 1; i < lines.length; i++){
-    const vals = parseCSVLine(lines[i], sep);
-    if(!vals.length) continue;
-    const row = {};
-    headers.forEach((h, idx) => { row[h.trim()] = (vals[idx]||'').trim(); });
-    rows.push(row);
-  }
-  return rows;
-}
-
-// Universal reader: handles CSV, XLSX and XLS. Returns array of row objects keyed by header.
-// Callback receives (rows) or (null, errorMessage).
-function readTabularFile(file, callback){
-  const name = (file.name||'').toLowerCase();
-  const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
-  if(isExcel){
-    if(typeof XLSX==='undefined'){ callback(null,'No se pudo cargar el lector de Excel. Verificá tu conexión a internet y recargá la página.'); return; }
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{
-        const data=new Uint8Array(e.target.result);
-        const wb=XLSX.read(data,{type:'array'});
-        const ws=wb.Sheets[wb.SheetNames[0]];
-        // sheet_to_json with header row -> array of objects; keys = header names, values as strings
-        const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
-        // trim keys to match CSV behavior
-        const cleaned=rows.map(r=>{
-          const o={}; Object.keys(r).forEach(k=>{ o[String(k).trim()]=(r[k]==null?'':String(r[k]).trim()); }); return o;
-        });
-        callback(cleaned);
-      }catch(err){ callback(null,'No se pudo leer el Excel: '+err.message); }
-    };
-    reader.onerror=()=>callback(null,'No se pudo leer el archivo.');
-    reader.readAsArrayBuffer(file);
-  } else {
-    const reader=new FileReader();
-    reader.onload=e=>{
-      try{ callback(parseCSVText(e.target.result)); }
-      catch(err){ callback(null,'No se pudo leer el CSV: '+err.message); }
-    };
-    reader.onerror=()=>callback(null,'No se pudo leer el archivo.');
-    reader.readAsText(file,'UTF-8');
-  }
-}
-
-function parseCSVLine(line, sep){
-  const result = [];
-  let cur = '', inQ = false;
-  for(let i = 0; i < line.length; i++){
-    const c = line[i];
-    if(c === '"'){ inQ = !inQ; }
-    else if(c === sep && !inQ){ result.push(cur); cur = ''; }
-    else { cur += c; }
-  }
-  result.push(cur);
-  return result;
-}
-
-function parseCostARS(raw){
-  // handles "$ 143,200.00" and "$91,200" and "143200.00"
-  const s = (raw||'').replace(/\s/g,'').replace(/\$/g,'');
-  // If has both comma and period: "143,200.00" → period is decimal
-  if(s.includes(',') && s.includes('.')){
-    // comma = thousands, period = decimal
-    return parseFloat(s.replace(/,/g,'')) || 0;
-  }
-  // Only comma: "143200,00" might be ARS format → comma is decimal  
-  if(s.includes(',') && !s.includes('.')){
-    const parts = s.split(',');
-    if(parts[1] && parts[1].length <= 2) return parseFloat(s.replace(',','.')) || 0;
-    // comma = thousands separator
-    return parseFloat(s.replace(',','')) || 0;
-  }
-  return parseFloat(s) || 0;
-}
-
-function applyCostCSV(){
-  if(!pendingCSV.length) return;
-  const m = gm();
-  const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
-  let added = 0, updated = 0, skipped = 0;
-
-  pendingCSV.forEach(r => {
-    const existing = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
-    if(existing){
-      // ALWAYS overwrite product cost (in ARS) on reimport
-      existing.productCostARS = r.productCostARS;
-      updated++;
-      if(!existing.tracking && r.tracking) existing.tracking = r.tracking;
-    } else {
-      m.orders.push({
-        num: r.num,
-        tracking: r.tracking,
-        salePrice: '',
-        productCostARS: r.productCostARS,
-        shippingARS: '',
-        dutiesARS: '',
-        handling: dep.toFixed(2),
-        notes: ''
-      });
-      added++;
-    }
-  });
-
-  pendingCSV = [];
-  document.getElementById('csv-preview').style.display = 'none';
-  schedSave(); renderOrders(); renderDashboard();
-  alert(`✓ Importación completa:\n• ${added} pedidos nuevos creados\n• ${updated} pedidos con costo actualizado (se pisó el valor anterior)`);
-}
-
-// ===== SHOPIFY SALES CSV IMPORT =====
-let pendingShopify = [];
-
-function importShopifyCSV(file){
-  if(!file) return;
-  document.getElementById('shopify-imp').value = '';
-  readTabularFile(file, (rows, err) => {
-    if(err){ alert('Error: '+err); return; }
-    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
-
-    // Reconoce el export estándar (Name/Total) y el reporte en español (Nombre del pedido/Ventas totales)
-    const firstRow = rows[0] || {};
-    const keys = Object.keys(firstRow);
-    const nameKey = keys.find(k => /^name$/i.test(k.trim())) || keys.find(k => /nombre del pedido/i.test(k.trim())) || keys.find(k => /pedido/i.test(k.trim()));
-    const totalKey = keys.find(k => /^total$/i.test(k.trim())) || keys.find(k => /ventas totales/i.test(k.trim())) || keys.find(k => /total/i.test(k.trim())) || keys.find(k => /ventas/i.test(k.trim()));
-
-    if(!nameKey || !totalKey){
-      alert('No se reconocieron las columnas.\nColumnas encontradas: '+keys.join(', ')+'\n\nEsperaba "Name"/"Total" o "Nombre del pedido"/"Ventas totales".');
-      return;
-    }
-
-    const seen = {};
-    pendingShopify = [];
-    rows.forEach(r => {
-      const name = (r[nameKey] || '').trim();
-      const totalRaw = (r[totalKey] || '').toString().trim();
-      if(!name) return;
-      if(totalRaw && !seen[name]){
-        const total = parseFloat(totalRaw.replace(/[^0-9.,-]/g,'').replace(/,/g,'')) || 0;
-        seen[name] = true;
-        pendingShopify.push({ num: name, total: total.toFixed(2) });
-      }
-    });
-
-    if(!pendingShopify.length){ alert('No se encontraron pedidos con monto de venta en el archivo.'); return; }
-
-    const m = gm();
-    const tbody = document.getElementById('shopify-preview-body');
-    tbody.innerHTML = pendingShopify.map(r => {
-      const inSystem = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
-      const neg = parseFloat(r.total) < 0;
-      return `<tr>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500;${neg?'color:var(--err)':''}">$${r.total}${neg?' <span class="badge err" style="font-size:9px">reembolso</span>':''}</td>
-        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
-      </tr>`;
-    }).join('');
-    const matchCount = pendingShopify.filter(r => m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim())).length;
-    document.getElementById('shopify-preview-lbl').textContent =
-      `${pendingShopify.length} pedidos en el archivo · ${matchCount} coinciden con pedidos del sistema`;
-    document.getElementById('shopify-preview').style.display = 'block';
-  });
-}
-
-function applyShopifyCSV(){
-  if(!pendingShopify.length) return;
-  const m = gm();
-  let updated = 0, notFound = 0;
-  pendingShopify.forEach(r => {
-    const order = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
-    if(order){
-      order.salePrice = r.total;
-      updated++;
-    } else {
-      notFound++;
-    }
-  });
-  pendingShopify = [];
-  document.getElementById('shopify-preview').style.display = 'none';
-  schedSave(); renderOrders(); renderDashboard();
-  alert(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta\n• ${notFound} pedidos del CSV no existían en el sistema`);
-}
-
-// ===== UTILS =====
-function toB64(file){
-  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(new Error('Error leyendo archivo')); r.readAsDataURL(file); });
-}
-function toggleRaw(id){ const el=document.getElementById(id); el.style.display=el.style.display==='none'?'block':'none'; }
-
-// Drag & drop FedEx
-const fxDrop=document.getElementById('fx-drop');
-fxDrop.addEventListener('dragover',e=>{e.preventDefault();fxDrop.style.background='var(--bg2)';});
-fxDrop.addEventListener('dragleave',()=>{fxDrop.style.background='';});
-fxDrop.addEventListener('drop',e=>{e.preventDefault();fxDrop.style.background='';if(e.dataTransfer.files.length)processFedex(e.dataTransfer.files);});
-
-// Init
-ld();
-migrateData();
-renderAll();
-</script>
-</body>
-</html>
+        // Gastos: agrego los que no estén (por descr
