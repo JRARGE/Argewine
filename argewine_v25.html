@@ -1886,4 +1886,346 @@ function mergeJSON(file){
           const existe=local.orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(impOrd.num));
           if(!existe){ local.orders.push(impOrd); pedidosAgregados++; fusionoAlgo=true; }
         });
-        // Gastos: agrego los que no estén (por
+        // Gastos: agrego los que no estén (por descripción + monto)
+        (impMonth.expenses||[]).forEach(impExp=>{
+          const existe=local.expenses.find(e=>e.desc===impExp.desc && e.amount===impExp.amount);
+          if(!existe){ local.expenses.push(impExp); gastosAgregados++; fusionoAlgo=true; }
+        });
+        if(fusionoAlgo) mesesFusionados++;
+      }
+    });
+
+    migrateData(); buildMonthSelector();
+    schedSave(); changeMonth();
+    alert(`✓ Combinación completa:\n`+
+      `• ${mesesNuevos} meses nuevos agregados\n`+
+      `• ${mesesFusionados} meses existentes fusionados\n`+
+      `• ${pedidosAgregados} pedidos agregados\n`+
+      `• ${gastosAgregados} gastos agregados\n\n`+
+      `No se pisó ni borró ningún dato que ya tenías.`);
+  };
+  r.readAsText(file);
+}
+function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; delete S.months[cur]; schedSave(); renderAll(); }
+
+function resetCostValues(){
+  if(!confirm('¿Limpiar SOLO el costo de productos del mes '+cur+'?\nEnvío, duties, ventas y todo lo demás se mantiene intacto. Después reimportá el CSV de costos.'))return;
+  const m=gm();
+  m.orders.forEach(o=>{ o.productCostARS=''; });
+  schedSave(); renderAll();
+  alert('✓ Costo de productos limpiado. Envío y duties se mantuvieron. Reimportá el CSV de costos.');
+}
+
+function resetAllCostValues(){
+  if(!confirm('¿Limpiar SOLO el costo de productos de TODOS los meses?\nEnvío, duties y ventas se mantienen intactos.'))return;
+  Object.values(S.months||{}).forEach(month=>{
+    (month.orders||[]).forEach(o=>{ o.productCostARS=''; });
+  });
+  schedSave(); renderAll();
+  alert('✓ Costo de productos limpiado en todos los meses. Envío y duties se mantuvieron. Reimportá los CSV de costos.');
+}
+
+function resetFedexValues(){
+  if(!confirm('¿Limpiar SOLO envío y duties del mes '+cur+'?\nProductos, ventas y todo lo demás se mantiene.'))return;
+  const m=gm();
+  m.orders.forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
+  schedSave(); renderAll();
+  alert('✓ Envío y duties limpiados en '+cur+'. Volvé a subir las facturas de FedEx con modo Reemplazar.');
+}
+
+function resetAllFedexValues(){
+  if(!confirm('¿Limpiar envío y duties de TODOS los meses?\nProductos, ventas y todo lo demás se mantiene.'))return;
+  Object.values(S.months||{}).forEach(month=>{
+    (month.orders||[]).forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
+  });
+  schedSave(); renderAll();
+  alert('✓ Envío y duties limpiados en todos los meses. Volvé a subir las facturas de FedEx con modo Reemplazar.');
+}
+function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
+
+// ===== CSV IMPORT DE COSTOS =====
+let pendingCSV = [];
+
+function importCostCSV(file){
+  if(!file) return;
+  document.getElementById('csv-imp').value = '';
+  readTabularFile(file, (rows, err) => {
+    if(err){ alert('Error: '+err); return; }
+    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+
+    const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
+    const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
+
+    // Flexible column detection (handles different header spellings)
+    const keys = Object.keys(rows[0]);
+    const numKey = keys.find(k=>/pedido/i.test(k)) || keys[0];
+    const trkKey = keys.find(k=>/seguimiento|tracking|gu[ií]a/i.test(k)) || keys[1];
+    const costKey = keys.find(k=>/costo.*producto|producto.*costo|costo.*pesos|^costo$/i.test(k)) || keys.find(k=>/costo|pesos/i.test(k));
+
+    if(!costKey){
+      alert('No se encontró la columna de costo. Columnas detectadas:\n'+keys.join(', ')+'\n\nEsperaba una columna como "Costo Productos (Pesos)".');
+      return;
+    }
+
+    pendingCSV = [];
+    rows.forEach(r => {
+      const num  = (r[numKey] || '').trim();
+      const trk  = (r[trkKey] || '').trim();
+      const arsRaw = r[costKey] || '';
+      if(!num) return;
+      const ars = parseCostARS(arsRaw);
+      pendingCSV.push({ num, tracking: trk, productCostARS: ars.toFixed(2), handling: dep.toFixed(2) });
+    });
+
+    if(!pendingCSV.length){ alert('No se pudieron leer filas válidas. Verificá el formato.'); return; }
+
+    const tbody = document.getElementById('csv-preview-body');
+    tbody.innerHTML = pendingCSV.map(r => {
+      const usd = fx>0 ? '$'+(parseFloat(r.productCostARS)/fx).toFixed(2) : '(falta TC)';
+      return `<tr>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-family:monospace;font-size:10px">${r.tracking||'-'}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">$${parseFloat(r.productCostARS).toLocaleString('es-AR')}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500">${usd}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('csv-preview-lbl').textContent =
+      `${pendingCSV.length} pedidos listos. El costo se guarda en pesos y se convierte a USD al mostrar` + (fx>0?` (TC actual: $${fx.toLocaleString('es-AR')})`:' (configurá el tipo de cambio en Config)');
+    document.getElementById('csv-preview').style.display = 'block';
+  });
+}
+
+// Parser flexible: detecta si el separador decimal es "." o "," según el formato.
+// "87074.40" -> 87074.40 | "87.074,40" -> 87074.40 | "87,074.40" -> 87074.40 | "87074" -> 87074
+function parseFlexibleNumber(raw){
+  let s=(raw||'').toString().replace(/[^0-9.,-]/g,'');
+  if(!s) return null;
+  const hasDot=s.includes('.'), hasComma=s.includes(',');
+  if(hasDot&&hasComma){
+    // El que aparece último es el separador decimal
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')){ s=s.replace(/\./g,'').replace(',','.'); }
+    else { s=s.replace(/,/g,''); }
+  } else if(hasComma){
+    // Solo coma: si hay <=2 dígitos después, es decimal; sino son miles
+    const after=s.split(',').pop();
+    s = after.length<=2 ? s.replace(',','.') : s.replace(/,/g,'');
+  } else if(hasDot){
+    // Solo punto: si hay <=2 dígitos después del último, es decimal; sino son miles
+    const after=s.split('.').pop();
+    if(after.length>2 || (s.match(/\./g)||[]).length>1){ s=s.replace(/\./g,''); }
+  }
+  const n=parseFloat(s);
+  return isNaN(n)?null:n;
+}
+
+function parseCSVText(text){
+  // Detect separator
+  const sep = text.indexOf(';') > text.indexOf(',') ? ';' : ',';
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if(lines.length < 2) return [];
+
+  const headers = parseCSVLine(lines[0], sep);
+  const rows = [];
+  for(let i = 1; i < lines.length; i++){
+    const vals = parseCSVLine(lines[i], sep);
+    if(!vals.length) continue;
+    const row = {};
+    headers.forEach((h, idx) => { row[h.trim()] = (vals[idx]||'').trim(); });
+    rows.push(row);
+  }
+  return rows;
+}
+
+// Universal reader: handles CSV, XLSX and XLS. Returns array of row objects keyed by header.
+// Callback receives (rows) or (null, errorMessage).
+function readTabularFile(file, callback){
+  const name = (file.name||'').toLowerCase();
+  const isExcel = name.endsWith('.xlsx') || name.endsWith('.xls');
+  if(isExcel){
+    if(typeof XLSX==='undefined'){ callback(null,'No se pudo cargar el lector de Excel. Verificá tu conexión a internet y recargá la página.'); return; }
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const data=new Uint8Array(e.target.result);
+        const wb=XLSX.read(data,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        // sheet_to_json with header row -> array of objects; keys = header names, values as strings
+        const rows=XLSX.utils.sheet_to_json(ws,{defval:'',raw:false});
+        // trim keys to match CSV behavior
+        const cleaned=rows.map(r=>{
+          const o={}; Object.keys(r).forEach(k=>{ o[String(k).trim()]=(r[k]==null?'':String(r[k]).trim()); }); return o;
+        });
+        callback(cleaned);
+      }catch(err){ callback(null,'No se pudo leer el Excel: '+err.message); }
+    };
+    reader.onerror=()=>callback(null,'No se pudo leer el archivo.');
+    reader.readAsArrayBuffer(file);
+  } else {
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{ callback(parseCSVText(e.target.result)); }
+      catch(err){ callback(null,'No se pudo leer el CSV: '+err.message); }
+    };
+    reader.onerror=()=>callback(null,'No se pudo leer el archivo.');
+    reader.readAsText(file,'UTF-8');
+  }
+}
+
+function parseCSVLine(line, sep){
+  const result = [];
+  let cur = '', inQ = false;
+  for(let i = 0; i < line.length; i++){
+    const c = line[i];
+    if(c === '"'){ inQ = !inQ; }
+    else if(c === sep && !inQ){ result.push(cur); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur);
+  return result;
+}
+
+function parseCostARS(raw){
+  // handles "$ 143,200.00" and "$91,200" and "143200.00"
+  const s = (raw||'').replace(/\s/g,'').replace(/\$/g,'');
+  // If has both comma and period: "143,200.00" → period is decimal
+  if(s.includes(',') && s.includes('.')){
+    // comma = thousands, period = decimal
+    return parseFloat(s.replace(/,/g,'')) || 0;
+  }
+  // Only comma: "143200,00" might be ARS format → comma is decimal  
+  if(s.includes(',') && !s.includes('.')){
+    const parts = s.split(',');
+    if(parts[1] && parts[1].length <= 2) return parseFloat(s.replace(',','.')) || 0;
+    // comma = thousands separator
+    return parseFloat(s.replace(',','')) || 0;
+  }
+  return parseFloat(s) || 0;
+}
+
+function applyCostCSV(){
+  if(!pendingCSV.length) return;
+  const m = gm();
+  const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
+  let added = 0, updated = 0, skipped = 0;
+
+  pendingCSV.forEach(r => {
+    const existing = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+    if(existing){
+      // ALWAYS overwrite product cost (in ARS) on reimport
+      existing.productCostARS = r.productCostARS;
+      updated++;
+      if(!existing.tracking && r.tracking) existing.tracking = r.tracking;
+    } else {
+      m.orders.push({
+        num: r.num,
+        tracking: r.tracking,
+        salePrice: '',
+        productCostARS: r.productCostARS,
+        shippingARS: '',
+        dutiesARS: '',
+        handling: dep.toFixed(2),
+        notes: ''
+      });
+      added++;
+    }
+  });
+
+  pendingCSV = [];
+  document.getElementById('csv-preview').style.display = 'none';
+  schedSave(); renderOrders(); renderDashboard();
+  alert(`✓ Importación completa:\n• ${added} pedidos nuevos creados\n• ${updated} pedidos con costo actualizado (se pisó el valor anterior)`);
+}
+
+// ===== SHOPIFY SALES CSV IMPORT =====
+let pendingShopify = [];
+
+function importShopifyCSV(file){
+  if(!file) return;
+  document.getElementById('shopify-imp').value = '';
+  readTabularFile(file, (rows, err) => {
+    if(err){ alert('Error: '+err); return; }
+    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+
+    // Reconoce el export estándar (Name/Total) y el reporte en español (Nombre del pedido/Ventas totales)
+    const firstRow = rows[0] || {};
+    const keys = Object.keys(firstRow);
+    const nameKey = keys.find(k => /^name$/i.test(k.trim())) || keys.find(k => /nombre del pedido/i.test(k.trim())) || keys.find(k => /pedido/i.test(k.trim()));
+    const totalKey = keys.find(k => /^total$/i.test(k.trim())) || keys.find(k => /ventas totales/i.test(k.trim())) || keys.find(k => /total/i.test(k.trim())) || keys.find(k => /ventas/i.test(k.trim()));
+
+    if(!nameKey || !totalKey){
+      alert('No se reconocieron las columnas.\nColumnas encontradas: '+keys.join(', ')+'\n\nEsperaba "Name"/"Total" o "Nombre del pedido"/"Ventas totales".');
+      return;
+    }
+
+    const seen = {};
+    pendingShopify = [];
+    rows.forEach(r => {
+      const name = (r[nameKey] || '').trim();
+      const totalRaw = (r[totalKey] || '').toString().trim();
+      if(!name) return;
+      if(totalRaw && !seen[name]){
+        const total = parseFloat(totalRaw.replace(/[^0-9.,-]/g,'').replace(/,/g,'')) || 0;
+        seen[name] = true;
+        pendingShopify.push({ num: name, total: total.toFixed(2) });
+      }
+    });
+
+    if(!pendingShopify.length){ alert('No se encontraron pedidos con monto de venta en el archivo.'); return; }
+
+    const m = gm();
+    const tbody = document.getElementById('shopify-preview-body');
+    tbody.innerHTML = pendingShopify.map(r => {
+      const inSystem = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+      const neg = parseFloat(r.total) < 0;
+      return `<tr>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border);font-weight:500;${neg?'color:var(--err)':''}">$${r.total}${neg?' <span class="badge err" style="font-size:9px">reembolso</span>':''}</td>
+        <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
+      </tr>`;
+    }).join('');
+    const matchCount = pendingShopify.filter(r => m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim())).length;
+    document.getElementById('shopify-preview-lbl').textContent =
+      `${pendingShopify.length} pedidos en el archivo · ${matchCount} coinciden con pedidos del sistema`;
+    document.getElementById('shopify-preview').style.display = 'block';
+  });
+}
+
+function applyShopifyCSV(){
+  if(!pendingShopify.length) return;
+  const m = gm();
+  let updated = 0, notFound = 0;
+  pendingShopify.forEach(r => {
+    const order = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+    if(order){
+      order.salePrice = r.total;
+      updated++;
+    } else {
+      notFound++;
+    }
+  });
+  pendingShopify = [];
+  document.getElementById('shopify-preview').style.display = 'none';
+  schedSave(); renderOrders(); renderDashboard();
+  alert(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta\n• ${notFound} pedidos del CSV no existían en el sistema`);
+}
+
+// ===== UTILS =====
+function toB64(file){
+  return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(new Error('Error leyendo archivo')); r.readAsDataURL(file); });
+}
+function toggleRaw(id){ const el=document.getElementById(id); el.style.display=el.style.display==='none'?'block':'none'; }
+
+// Drag & drop FedEx
+const fxDrop=document.getElementById('fx-drop');
+fxDrop.addEventListener('dragover',e=>{e.preventDefault();fxDrop.style.background='var(--bg2)';});
+fxDrop.addEventListener('dragleave',()=>{fxDrop.style.background='';});
+fxDrop.addEventListener('drop',e=>{e.preventDefault();fxDrop.style.background='';if(e.dataTransfer.files.length)processFedex(e.dataTransfer.files);});
+
+// Init
+ld();
+migrateData();
+buildMonthSelector();
+renderAll();
+</script>
+</body>
+</html>
