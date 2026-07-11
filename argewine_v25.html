@@ -8,7 +8,7 @@
 <meta http-equiv="Expires" content="0">
 <title>Argewine — Costos & Ganancias</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -199,29 +199,14 @@ tr:last-child td{border-bottom:none}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v23</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v25</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
       <div class="save-indicator" id="save-ind"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <select id="monthSel" onchange="changeMonth()" style="font-size:12px">
-        <option value="2025-11">Nov 2025</option>
-        <option value="2025-12">Dic 2025</option>
-        <option value="2026-01">Ene 2026</option>
-        <option value="2026-02">Feb 2026</option>
-        <option value="2026-03">Mar 2026</option>
-        <option value="2026-04">Abr 2026</option>
-        <option value="2026-05">May 2026</option>
-        <option value="2026-06" selected>Jun 2026</option>
-        <option value="2026-07">Jul 2026</option>
-        <option value="2026-08">Ago 2026</option>
-        <option value="2026-09">Sep 2026</option>
-        <option value="2026-10">Oct 2026</option>
-        <option value="2026-11">Nov 2026</option>
-        <option value="2026-12">Dic 2026</option>
-      </select>
+      <select id="monthSel" onchange="changeMonth()" style="font-size:12px"></select>
     </div>
   </div>
 
@@ -615,7 +600,28 @@ tr:last-child td{border-bottom:none}
 // ===== STATE =====
 const LS = 'argewine_v3';
 let S = { months:{}, cfg:{} };
-let cur = '2026-06';
+function currentMonthKey(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+let cur = currentMonthKey();
+
+function buildMonthSelector(){
+  const sel=document.getElementById('monthSel');
+  if(!sel) return;
+  const NAMES=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const opts=[];
+  // Desde Nov 2025 hasta 3 meses después del actual, más cualquier mes con datos
+  const start=new Date(2025,10,1); // Nov 2025
+  const end=new Date(); end.setMonth(end.getMonth()+3);
+  const keys=new Set();
+  for(let d=new Date(start); d<=end; d.setMonth(d.getMonth()+1)){
+    keys.add(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));
+  }
+  Object.keys(S.months||{}).forEach(k=>{ if(/^\d{4}-\d{2}$/.test(k)) keys.add(k); });
+  [...keys].sort().forEach(k=>{
+    const [y,m]=k.split('-');
+    opts.push(`<option value="${k}" ${k===cur?'selected':''}>${NAMES[parseInt(m)-1]} ${y}</option>`);
+  });
+  sel.innerHTML=opts.join('');
+}
 let pendingAwbs = [];
 let pendingTxs = [];
 
@@ -1085,6 +1091,8 @@ function renderOrders(){
 function addOrder(){
   const num=document.getElementById('o-num').value.trim();
   if(!num){ alert('Ingresá el número de pedido'); return; }
+  const dup=gm().orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(num));
+  if(dup){ alert('Ya existe el pedido '+dup.num+' en este mes. Editalo en la tabla o usá otro número.'); return; }
   const dep=document.getElementById('o-dep').value||localStorage.getItem('aw_dep')||'3.25';
   gm().orders.push({
     num, tracking:document.getElementById('o-trk').value.trim(),
@@ -1740,22 +1748,16 @@ function txCardHTML(t, idx, defaultChecked){
 
 function toggleTx(idx){
   const card=document.getElementById('txcard-'+idx);
-  const check=document.getElementById('txcheck-'+idx);
   if(!card) return;
-  const isSelected=card.classList.toggle('selected');
-  check.style.color=isSelected?'#fff':'transparent';
-  check.style.background=isSelected?'var(--info)':'';
-  check.style.borderColor=isSelected?'var(--info)':'';
+  card.classList.toggle('selected');
   updateTxSummary();
 }
 
 function txSelectAll(state){
   pendingTxs.forEach((_,idx)=>{
     const card=document.getElementById('txcard-'+idx);
-    const check=document.getElementById('txcheck-'+idx);
     if(!card) return;
-    if(state){ card.classList.add('selected'); check.style.cssText='color:#fff;background:var(--info);border-color:var(--info)'; }
-    else { card.classList.remove('selected'); check.style.cssText='color:transparent;background:;border-color:'; }
+    card.classList.toggle('selected', state);
   });
   updateTxSummary();
 }
@@ -1763,10 +1765,8 @@ function txSelectAll(state){
 function txSelectBiz(){
   pendingTxs.forEach((t,idx)=>{
     const card=document.getElementById('txcard-'+idx);
-    const check=document.getElementById('txcheck-'+idx);
     if(!card) return;
-    if(t.isLikelyBusiness){ card.classList.add('selected'); check.style.cssText='color:#fff;background:var(--info);border-color:var(--info)'; }
-    else { card.classList.remove('selected'); check.style.cssText='color:transparent;background:;border-color:'; }
+    card.classList.toggle('selected', !!t.isLikelyBusiness);
   });
   updateTxSummary();
 }
@@ -1852,7 +1852,7 @@ function exportCSV(){
 function exportJSON(){ dl(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}),'argewine_backup.json'); }
 function importJSON(file){
   const r=new FileReader();
-  r.onload=()=>{ try{ S=JSON.parse(r.result); schedSave(); changeMonth(); alert('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ alert('Error: '+e.message); } };
+  r.onload=()=>{ try{ S=JSON.parse(r.result); migrateData(); buildMonthSelector(); schedSave(); changeMonth(); alert('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ alert('Error: '+e.message); } };
   r.readAsText(file);
 }
 
@@ -1883,4 +1883,7 @@ function mergeJSON(file){
         if(!local.expenses) local.expenses=[];
         let fusionoAlgo=false;
         (impMonth.orders||[]).forEach(impOrd=>{
-     
+          const existe=local.orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(impOrd.num));
+          if(!existe){ local.orders.push(impOrd); pedidosAgregados++; fusionoAlgo=true; }
+        });
+        // Gastos: agrego los que no estén (por
