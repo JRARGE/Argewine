@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v33</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v34</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -1135,6 +1135,25 @@ function findOrderByNum(orders, num){
   return (orders||[]).find(o => orderKey(o.num) === k);
 }
 
+// Busca un pedido por número en TODOS los meses y devuelve {o, mk, arr}.
+// Un pedido puede haberse vendido en un mes y enviado en otro: el número de pedido
+// es único en todo el sistema, no por mes. Sin esto los importadores creaban una
+// copia en el mes seleccionado y el dashboard contaba el pedido dos veces.
+// Se mira primero el mes actual para no cambiar el comportamiento habitual.
+function findOrderAnywhere(num){
+  const k = orderKey(num);
+  if(!k) return undefined;
+  const meses = Object.keys(S.months||{});
+  const orden = [cur].concat(meses.filter(mk => mk !== cur));
+  for(const mk of orden){
+    const arr = (S.months[mk] && S.months[mk].orders) || null;
+    if(!arr) continue;
+    const o = arr.find(x => orderKey(x.num) === k);
+    if(o) return { o, mk, arr };
+  }
+  return undefined;
+}
+
 // ===== DASHBOARD =====
 function renderDashboard(){
   const m=gm();
@@ -1222,7 +1241,7 @@ function renderOrders(){
       <td class="editable-cell" ${ed('handling')} title="Depósito en USD — clic para editar">$${u.deposit.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
       <td style="font-weight:600;color:${pr>=0?'var(--ok)':'var(--err)'}">$${pr.toFixed(2)}</td>
       <td><span class="dot ${dc}"></span>${sl}</td>
-      <td><button class="btn sm danger" onclick="delOrder(${i},'${delNum}')" title="Borrar este pedido"><i class="ti ti-trash"></i></button></td>
+      <td style="white-space:nowrap"><button class="btn sm" onclick="moveOrderToMonth(${i},'${delNum}')" title="Mover a otro mes"><i class="ti ti-calendar-share"></i></button> <button class="btn sm danger" onclick="delOrder(${i},'${delNum}')" title="Borrar este pedido"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   }).join('');
   updateBulkBar();
@@ -1354,6 +1373,36 @@ function clearOrderForm(){
   ['o-num','o-trk','o-sale','o-cost','o-ship','o-duty','o-notes'].forEach(id=>document.getElementById(id).value='');
   const dep=localStorage.getItem('aw_dep'); if(dep) document.getElementById('o-dep').value=dep;
 }
+// Mueve un pedido completo a otro mes, con su venta, sus costos y sus notas.
+// Sirve para los pedidos cobrados en un mes y enviados en otro: se decide en qué
+// mes querés que impacte la ganancia, sin duplicar nada.
+function moveOrderToMonth(i, num){
+  const m = gm();
+  let idx = i;
+  if(num !== undefined && (!m.orders[idx] || orderKey(m.orders[idx].num) !== orderKey(num))){
+    idx = m.orders.findIndex(o => orderKey(o.num) === orderKey(num));
+  }
+  const o = m.orders[idx];
+  if(!o){ alert('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
+
+  const destino = prompt('Mover el pedido '+o.num+' a otro mes.\n\n'+
+    'Escribí el mes destino como AAAA-MM (por ejemplo 2026-10).\n'+
+    'Se lleva la venta, el costo de productos, envío, duties y notas.', cur);
+  if(destino === null) return;
+  const mk = destino.trim();
+  if(!/^\d{4}-\d{2}$/.test(mk)){ alert('Formato inválido. Usá AAAA-MM, por ejemplo 2026-10.'); return; }
+  if(mk === cur){ alert('El pedido ya está en '+cur+'.'); return; }
+
+  if(!S.months[mk]) S.months[mk] = { orders:[], expenses:[], fxHist:[] };
+  const choque = (S.months[mk].orders||[]).find(x => orderKey(x.num) === orderKey(o.num));
+  if(choque){ alert('En '+mk+' ya existe el pedido '+choque.num+'.\n\nBorrá ese o cambiale el número antes de mover este.'); return; }
+
+  m.orders.splice(idx, 1);
+  S.months[mk].orders.push(o);
+  schedSave(); buildMonthSelector(); renderAll();
+  alert('✓ Pedido '+o.num+' movido a '+mk+'.\n\nSe fue con su venta y sus costos. Cambiá de mes para verlo.');
+}
+
 // Borra por identidad: si el índice ya no apunta al pedido que se ve en pantalla
 // (re-render intermedio, sync de Drive), cae al match por número en vez de borrar otra fila.
 function delOrder(i, num){
@@ -2556,7 +2605,7 @@ function applyCostCSV(){
     if(!confirm('Vas a PISAR los pedidos por número.\n\nDe los '+pendingCSV.length+' pedidos del archivo se borran venta, envío, duties y notas, y se recargan desde cero.\nLos pedidos que NO estén en el archivo quedan intactos.\n\n¿Confirmás?')) return;
   }
 
-  let added = 0, replaced = 0, updated = 0;
+  let added = 0, replaced = 0, updated = 0, enOtroMes = 0;
 
   pendingCSV.forEach(r => {
     const fresh = {
@@ -2569,20 +2618,21 @@ function applyCostCSV(){
       handling: dep.toFixed(2),
       notes: ''
     };
-    const existing = findOrderByNum(m.orders, r.num);
+    const hit = findOrderAnywhere(r.num);
 
-    if(!existing){
+    if(!hit){
       m.orders.push(fresh);
       added++;
       return;
     }
+    if(hit.mk !== cur) enOtroMes++;
 
     if(mode === 'replace'){
-      m.orders[m.orders.indexOf(existing)] = fresh; // pisa el registro entero, en su misma posición
+      hit.arr[hit.arr.indexOf(hit.o)] = fresh; // pisa el registro entero, en su misma posición
       replaced++;
     } else {
-      existing.productCostARS = r.productCostARS;
-      if(!existing.tracking && r.tracking) existing.tracking = r.tracking;
+      hit.o.productCostARS = r.productCostARS;
+      if(!hit.o.tracking && r.tracking) hit.o.tracking = r.tracking;
       updated++;
     }
   });
@@ -2598,6 +2648,7 @@ function applyCostCSV(){
   const lines = ['✓ '+modeLbl+' — '+total+' filas del archivo:', '• '+added+' pedidos nuevos creados'];
   if(mode === 'replace') lines.push('• '+replaced+' pedidos pisados por completo');
   else if(mode === 'merge') lines.push('• '+updated+' pedidos con costo actualizado (se pisó el valor anterior)');
+  if(enOtroMes) lines.push('• '+enOtroMes+' de esos pedidos viven en otro mes (vendidos antes de enviarse): se actualizaron ahí, no se duplicaron acá');
   alert(lines.join('\n'));
 }
 
@@ -2655,7 +2706,7 @@ function processShopifyRows(rows, sheetInfo){
   const m = gm();
   const tbody = document.getElementById('shopify-preview-body');
   tbody.innerHTML = pendingShopify.map(r => {
-    const inSystem = findOrderByNum(m.orders, r.num);
+    const inSystem = findOrderAnywhere(r.num);
     const neg = parseFloat(r.total) < 0;
     return `<tr>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
@@ -2663,7 +2714,7 @@ function processShopifyRows(rows, sheetInfo){
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
     </tr>`;
   }).join('');
-  const matchCount = pendingShopify.filter(r => findOrderByNum(m.orders, r.num)).length;
+  const matchCount = pendingShopify.filter(r => findOrderAnywhere(r.num)).length;
   const lbl = document.getElementById('shopify-preview-lbl');
   const sheetHtml = sheetSelectorHTML(sheetInfo, 'shopify-sheet-sel', 'onShopifySheetChange');
   if(matchCount === 0){
@@ -2677,11 +2728,12 @@ function processShopifyRows(rows, sheetInfo){
 function applyShopifyCSV(){
   if(!pendingShopify.length) return;
   const m = gm();
-  let updated = 0, notFound = 0;
+  let updated = 0, notFound = 0, enOtroMes = 0;
   pendingShopify.forEach(r => {
-    const order = findOrderByNum(m.orders, r.num);
-    if(order){
-      order.salePrice = r.total;
+    const hit = findOrderAnywhere(r.num);
+    if(hit){
+      hit.o.salePrice = r.total;
+      if(hit.mk !== cur) enOtroMes++;
       updated++;
     } else {
       notFound++;
@@ -2693,7 +2745,9 @@ function applyShopifyCSV(){
   if(updated === 0){
     alert(`⚠️ NINGÚN pedido se actualizó (0 de ${notFound}).\n\nEsto pasa cuando los pedidos del CSV todavía no existen en el sistema. Recordá el orden correcto:\n1º Importar el CSV/Excel de COSTOS (crea los pedidos)\n2º Recién ahí importar las VENTAS de Shopify (completa el monto)\n\nSi ya cargaste los costos y ves este mensaje, verificá que los números de pedido coincidan.`);
   } else {
-    alert(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta\n• ${notFound} pedidos del CSV no existían en el sistema`);
+    alert(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta`+
+      (enOtroMes?`\n• ${enOtroMes} de ellos viven en otro mes: se completaron ahí`:'')+
+      `\n• ${notFound} pedidos del CSV no existían en el sistema`);
   }
 }
 
