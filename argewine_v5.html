@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v41</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v42</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -657,9 +657,10 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         </div>
         <p style="font-size:11px;color:var(--text2);margin-top:4px">
           Es el <strong>servicio de transferencia de documentos</strong> que cobra FedEx por envío.
+          Es un cargo fijo, así que se descuenta desde el momento del pedido sin esperar la factura.
           Los impuestos de importación que pagás como agente aduanero no van acá:
           cargalos en <strong>Gastos</strong>, que no son por pedido.
-          Vacío = mediana de tus envíos ya facturados.
+          Vacío = $13,75 USD.
           <span id="cfg-duty-auto"></span>
         </p>
         <p style="font-size:11px;color:var(--text2);margin-top:6px">
@@ -1170,6 +1171,10 @@ function estimarEnvio(bottles, puntos){
 // lo tienen cargado. Se estima así y no por botella porque los vinos tienen precios muy
 // distintos: sobre los datos reales, por botella la dispersión es del 78% y el error
 // medio del 75%, mientras que como % de la venta es 30% y 29%.
+// Cargo fijo de FedEx por envío, en USD (servicio de transferencia de documentos).
+// Si FedEx lo cambia, se corrige desde Config sin tocar el código.
+const DUTY_USD_DEFAULT = 13.75;
+
 function costRatio(){
   const fx = getFx();
   if(!fx) return 0;
@@ -1198,22 +1203,27 @@ function provisionInfo(){
     });
   });
   const med = a => { if(!a.length) return 0; const b=a.slice().sort((x,y)=>x-y); return b[Math.floor((b.length-1)/2)]; };
-  // Duties: FedEx cobra un cargo fijo por envío (13,75 USD) por el servicio de
-  // transferencia de documentos. Los impuestos de importación los paga el usuario
-  // aparte, como agente aduanero, y van a Gastos generales — no por pedido.
+  // Duties: FedEx cobra un CARGO FIJO por envío por el servicio de transferencia de
+  // documentos. Es un monto conocido de antemano, así que se usa directo en vez de
+  // deducirlo del historial: un mes al que todavía no le llegó ninguna factura de
+  // FedEx igual queda bien provisionado.
   //
-  // Se usa la MEDIANA y no el promedio a propósito: hasta mediados de 2026 FedEx
-  // actuaba como agente aduanero y facturaba también el arancel real, que era varias
-  // veces el cargo fijo. Esos importes viejos siguen en el historial y contaminan el
-  // promedio (lo llevan de ~14 a ~27 USD) con plata que ya no se paga. La mediana cae
-  // en el cargo fijo aunque esa cola esté presente.
+  // Los impuestos de importación NO van acá: el usuario es su propio agente aduanero
+  // y los carga como gasto general del mes, porque no son por pedido.
+  //
+  // (El historial arrastra aranceles mucho más grandes de cuando FedEx era el agente
+  // aduanero. Ese régimen terminó y esos importes no se repiten, motivo de más para
+  // no deducir el cargo de los datos viejos.)
   const dutyManual = parseFloat(localStorage.getItem('aw_duty'));
-  const dutyMedARS = med(duts);
+  const dutyUSD = (!isNaN(dutyManual) && dutyManual>0) ? dutyManual : DUTY_USD_DEFAULT;
+  const dutyMedARS = med(duts);   // solo informativo, para detectar si el cargo cambió
   const fxAhora = getFx();
   const manualRaw = parseFloat(localStorage.getItem('aw_prov'));
   return {
     dutyManualUSD: (!isNaN(dutyManual) && dutyManual>0) ? dutyManual : null,
-    dutyARS: (!isNaN(dutyManual) && dutyManual>0 && fxAhora) ? dutyManual*fxAhora : dutyMedARS,
+    dutyUSD,
+    dutyARS: fxAhora ? dutyUSD*fxAhora : 0,
+    dutyMedARS,
     manual: (!isNaN(manualRaw) && manualRaw>0) ? manualRaw : null,
     ship: med(ships), dut: med(duts),
     nShip: ships.length, nDut: duts.length,
@@ -1425,11 +1435,13 @@ function renderProvision(m, prov, d){
 
   const dutyAuto=document.getElementById('cfg-duty-auto');
   if(dutyAuto){
-    dutyAuto.innerHTML = prov.dutyManualUSD!=null
-      ? `Ahora estás usando <strong>$${prov.dutyManualUSD.toFixed(2)} USD</strong> fijos.`
-      : (prov.nDut
-          ? `Hoy el automático es <strong>$${(fx?prov.dutyARS/fx:0).toFixed(2)} USD</strong> por envío, mediana de ${prov.nDut} ya facturados.`
-          : 'Todavía no hay envíos con duties facturados como para calcularlo.');
+    dutyAuto.innerHTML = `Usando <strong>$${prov.dutyUSD.toFixed(2)} USD</strong> por envío`+
+      (prov.dutyManualUSD!=null ? ' (fijado por vos).' : ' (el valor por defecto).')+
+      (prov.nDut && fx
+        ? ` Control: tus ${prov.nDut} envíos ya facturados dan una mediana de ${ars(prov.dutyMedARS)} ARS, `+
+          `equivalente a $${prov.dutyUSD.toFixed(2)} USD a una cotización de $${Math.round(prov.dutyMedARS/prov.dutyUSD).toLocaleString('es-AR')}. `+
+          `Si ese número se despega mucho del dólar de FedEx, es que cambió el cargo.`
+        : '');
   }
   const autoTxt=document.getElementById('cfg-prov-auto');
   if(autoTxt){
@@ -1468,12 +1480,12 @@ function renderProvision(m, prov, d){
             ? `mediana de tus ${prov.nShip} envíos ya facturados: ${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties`
             : 'todavía sin historial para estimar'));
   // La curva, para que se vea de dónde sale el número
-  const dutyTxt = (prov.manual==null && prov.dutyARS>0 && fx)
+  const dutyTxt = (prov.manual==null && prov.dutyARS>0 && fx && provLogUSD>0)
     ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">
          Los duties se estiman en <strong>$${(prov.dutyARS/fx).toFixed(2)} USD por envío</strong>`+
-      (prov.dutyManualUSD!=null
-        ? ' (valor fijado por vos en Config).'
-        : `, mediana de tus ${prov.nDut} envíos ya facturados. Es el servicio de transferencia de documentos de FedEx; los impuestos de importación van aparte, en Gastos.`)+
+      ` — es el cargo fijo de FedEx por transferencia de documentos`+
+      (prov.dutyManualUSD!=null ? ', fijado por vos en Config.' : '.')+
+      ` Los impuestos de importación no entran acá: van como gasto del mes.`+
       `</div>`
     : '';
   const ratioTxt = (prov.ratio>0 && provProdUSD>0)
