@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v37</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v39</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -1101,6 +1101,8 @@ function calcProfit(o){
 // ¿A este pedido le falta la factura de FedEx?
 function faltaShip(o){ return o.shippingARS===''||o.shippingARS==null; }
 function faltaDut(o){ return o.dutiesARS===''||o.dutiesARS==null; }
+// Un pedido de vino no puede costar cero: si está vacío o en 0, es que no se cargó.
+function faltaProducto(o){ return !(parseFloat(o.productCostARS)>0); }
 function tieneVenta(o){ return o.salePrice!==''&&o.salePrice!=null; }
 
 // Un pedido sin número de tracking todavía no se despachó: se va a enviar más adelante.
@@ -1151,6 +1153,25 @@ function estimarEnvio(bottles, puntos){
   return null;
 }
 
+// Qué proporción de la venta se lleva el costo del producto, según los pedidos que ya
+// lo tienen cargado. Se estima así y no por botella porque los vinos tienen precios muy
+// distintos: sobre los datos reales, por botella la dispersión es del 78% y el error
+// medio del 75%, mientras que como % de la venta es 30% y 29%.
+function costRatio(){
+  const fx = getFx();
+  if(!fx) return 0;
+  const rs = [];
+  Object.values(S.months||{}).forEach(mes=>{
+    (mes.orders||[]).forEach(o=>{
+      const c = parseFloat(o.productCostARS), v = parseFloat(o.salePrice);
+      if(c>0 && v>0) rs.push(c/(v*fx));
+    });
+  });
+  if(!rs.length) return 0;
+  const s = rs.slice().sort((a,b)=>a-b);
+  return s[Math.floor((s.length-1)/2)];
+}
+
 // Cuánto suele costar envío y duties, según los pedidos que YA se facturaron completos,
 // mirando todos los meses. Se usa la mediana y no el promedio para que un envío atípico
 // no distorsione la estimación.
@@ -1169,23 +1190,37 @@ function provisionInfo(){
     manual: (!isNaN(manualRaw) && manualRaw>0) ? manualRaw : null,
     ship: med(ships), dut: med(duts),
     nShip: ships.length, nDut: duts.length,
-    curva: shippingCurve()
+    curva: shippingCurve(),
+    ratio: costRatio()
   };
 }
 
 // Lo que hay que provisionar en un pedido concreto: solo la parte que falta.
-function provisionDe(o, p){
-  const fs=faltaShip(o), fd=faltaDut(o);
-  if(!fs && !fd) return 0;
-  if(p.manual!=null) return p.manual;
-  let ship = 0;
-  if(fs){
-    // Si el pedido tiene cargada la cantidad de botellas, se estima con la curva.
-    // Si no, se cae a la mediana plana, que es peor pero es lo que hay.
-    const porCurva = estimarEnvio(o.bottles, p.curva);
-    ship = (porCurva!=null) ? porCurva : p.ship;
+// Qué falta provisionar en un pedido, abierto por concepto (en ARS).
+// El costo de producto y la logística son agujeros distintos: el primero aparece
+// en los pedidos que el empleado todavía no cerró, el segundo cuando no llegó FedEx.
+function provisionPartes(o, p){
+  const partes = { producto:0, envio:0, duties:0 };
+  if(!tieneVenta(o)) return partes;
+
+  if(faltaProducto(o) && p.ratio>0){
+    partes.producto = (parseFloat(o.salePrice)||0) * getFx() * p.ratio;
   }
-  return ship + (fd?p.dut:0);
+  if(faltaShip(o)){
+    if(p.manual!=null){
+      partes.envio = p.manual;           // la provisión manual cubre toda la logística
+    } else {
+      const porCurva = estimarEnvio(o.bottles, p.curva);
+      partes.envio = (porCurva!=null) ? porCurva : p.ship;
+    }
+  }
+  if(faltaDut(o) && p.manual==null) partes.duties = p.dut;
+  return partes;
+}
+
+function provisionDe(o, p){
+  const x = provisionPartes(o, p);
+  return x.producto + x.envio + x.duties;
 }
 
 // ¿Este pedido se estimó por botellas o con la mediana plana?
@@ -1287,12 +1322,22 @@ function renderDashboard(){
   const prov = provisionInfo();
   let provARS=0, nPend=0, nPorBotellas=0;
   let nSinEnviar=0, provSinEnviarARS=0, nEsperandoFactura=0, provEsperandoARS=0;
+  let provProdARS=0, provLogARS=0, nSinProducto=0, nNecesitaEnvio=0;
   m.orders.forEach(o=>{
     if(!tieneVenta(o)) return;
-    const pv=provisionDe(o, prov);
+    const partes=provisionPartes(o, prov);
+    const pv=partes.producto+partes.envio+partes.duties;
     if(pv>0){
       provARS+=pv; nPend++;
-      if(provisionEsPorBotellas(o, prov)) nPorBotellas++;
+      provProdARS+=partes.producto;
+      provLogARS+=partes.envio+partes.duties;
+      if(partes.producto>0) nSinProducto++;
+      // El aviso de "sin botellas" solo aplica a los pedidos que necesitan ESTIMAR
+      // el envío. Los que ya lo tienen cargado y solo esperan los duties no cuentan.
+      if(faltaShip(o)){
+        nNecesitaEnvio++;
+        if(provisionEsPorBotellas(o, prov)) nPorBotellas++;
+      }
       // Sin tracking = todavía no salió. Con tracking = ya salió y falta la factura.
       if(sinEnviar(o)){ nSinEnviar++; provSinEnviarARS+=pv; }
       else { nEsperandoFactura++; provEsperandoARS+=pv; }
@@ -1313,8 +1358,9 @@ function renderDashboard(){
   const ownerLbl=document.getElementById('m-owner-lbl');
   if(ownerLbl) ownerLbl.textContent = nPend ? 'Para vos (con provisión)' : 'Para vos';
   renderProvision(m, prov, { nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas,
-    nSinEnviar, nEsperandoFactura,
-    provSinEnviarUSD: arsToUsd(provSinEnviarARS), provEsperandoUSD: arsToUsd(provEsperandoARS) });
+    nSinEnviar, nEsperandoFactura, nSinProducto, nNecesitaEnvio,
+    provSinEnviarUSD: arsToUsd(provSinEnviarARS), provEsperandoUSD: arsToUsd(provEsperandoARS),
+    provProdUSD: arsToUsd(provProdARS), provLogUSD: arsToUsd(provLogARS) });
 
   const compl=m.orders.filter(o=>orderStatus(o)==='complete').length;
   const part=m.orders.filter(o=>orderStatus(o)==='partial').length;
@@ -1343,7 +1389,8 @@ function renderDashboard(){
 // descuenta lo que falta facturar, para decidir cuánto se puede retirar sin quedar corto.
 function renderProvision(m, prov, d){
   const { nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas,
-          nSinEnviar, nEsperandoFactura, provSinEnviarUSD, provEsperandoUSD } = d;
+          nSinEnviar, nEsperandoFactura, nSinProducto, nNecesitaEnvio,
+          provSinEnviarUSD, provEsperandoUSD, provProdUSD, provLogUSD } = d;
   const el=document.getElementById('d-prov');
   if(!el) return;
   const fx=getFx();
@@ -1376,7 +1423,7 @@ function renderProvision(m, prov, d){
       'Cargá un reporte de FedEx, o poné una provisión manual por pedido en <strong>Config</strong>.</div>';
     return;
   }
-  const sinBotellas = nPend - nPorBotellas;
+  const sinBotellas = nNecesitaEnvio - nPorBotellas;
   const origen = prov.manual!=null
     ? `provisión manual de ${ars(prov.manual)} ARS por pedido (Config)`
     : (nPorBotellas
@@ -1386,6 +1433,12 @@ function renderProvision(m, prov, d){
             ? `mediana de tus ${prov.nShip} envíos ya facturados: ${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties`
             : 'todavía sin historial para estimar'));
   // La curva, para que se vea de dónde sale el número
+  const ratioTxt = (prov.ratio>0 && provProdUSD>0)
+    ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">
+         El costo de productos se estima en <strong>${(prov.ratio*100).toFixed(0)}% de la venta</strong>,
+         que es la mediana de tus pedidos que sí lo tienen cargado.
+       </div>`
+    : '';
   const curvaTxt = (prov.manual==null && prov.curva.length)
     ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
          <strong>Costo de envío por cantidad de botellas</strong> (mediana de tus pedidos facturados, entre paréntesis cuántos):<br>`+
@@ -1410,11 +1463,15 @@ function renderProvision(m, prov, d){
     + linea(nEsperandoFactura, nEsperandoFactura>1?'ya enviados, esperando la factura de FedEx':'ya enviado, esperando la factura de FedEx', provEsperandoUSD, 'var(--info)')
     + `<div style="font-size:11px;color:var(--text2);margin:6px 0 2px">Se estima el costo que falta usando la ${origen}.</div>`
     + fila('Ganancia neta del mes','$'+net.toFixed(2),null,'como está hoy: cuenta esas ventas sin su costo de envío')
-    + fila('Costo estimado que falta','−$'+provUSD.toFixed(2),'var(--warn)',ars(provARS)+' ARS al cambio $'+fx.toLocaleString('es-AR'))
+    + (provProdUSD>0 ? fila('· Costo de productos que falta','−$'+provProdUSD.toFixed(2),'var(--warn)',
+        nSinProducto+' pedido'+(nSinProducto>1?'s':'')+' sin costo cargado · estimado en '+(prov.ratio*100).toFixed(0)+'% de la venta') : '')
+    + (provLogUSD>0 ? fila('· Envío y duties que faltan','−$'+provLogUSD.toFixed(2),'var(--warn)') : '')
+    + fila('Costo estimado total que falta','−$'+provUSD.toFixed(2),'var(--warn)',ars(provARS)+' ARS al cambio $'+fx.toLocaleString('es-AR'))
     + `<div class="divider"></div>`
     + fila('<strong>Ganancia realista de hoy</strong>','$'+netProv.toFixed(2), netProv>=0?'var(--ok)':'var(--err)')
     + fila('Podés retirar ('+ownerPct+'%)','$'+(netProv*(ownerPct/100)).toFixed(2),'var(--ok)')
     + fila('Reserva a no tocar','$'+provUSD.toFixed(2),'var(--warn)','guardalo hasta que llegue la factura de FedEx')
+    + ratioTxt
     + curvaTxt
     + (sinBotellas && prov.manual==null
         ? `<div style="font-size:11px;color:var(--warn);margin-top:6px"><i class="ti ti-alert-triangle"></i> ${sinBotellas} pedido${sinBotellas>1?'s':''} sin cantidad de botellas: se estimó con la mediana plana, que es menos precisa. Cargá las botellas en la tabla de Pedidos o importá las ventas de Shopify.</div>`
@@ -2061,6 +2118,11 @@ function processFxReportRows(rows, sheetInfo){
   gm(); // asegura que el mes actual exista antes de indexar
   const todos = allOrdersIndexed();
   pendingFxReport = [];
+  // Un export de FedEx no trae filas idénticas, pero los rangos de fechas se solapan
+  // entre exports: si se pegan dos archivos, el mismo cargo entraría dos veces y el
+  // importe se duplicaría en el pedido. Se ignoran las repetidas exactas.
+  const vistas = new Set();
+  let duplicadas = 0;
   rows.forEach(r => {
     const ref = (r[refKey]||'').toString().trim();
     const awb = awbKey ? (r[awbKey]||'').toString().trim() : '';
@@ -2072,6 +2134,10 @@ function processFxReportRows(rows, sheetInfo){
     if((!ref && !awb) || !amtRaw) return;
     const amount = parseFlexibleNumber(amtRaw);
     if(amount===null || amount<=0) return;
+
+    const firma = [awb, ref, typeRaw, amtRaw, invKey?(r[invKey]||''):''].join('|');
+    if(vistas.has(firma)){ duplicadas++; return; }
+    vistas.add(firma);
 
     // Clasificar tipo: "Transportation"/"Transporte" -> envío; "Duty/Tax"/"Impuestos/aranceles" -> duties
     let type;
@@ -2151,13 +2217,16 @@ function processFxReportRows(rows, sheetInfo){
   const detalleMeses = Object.keys(porMes).length>1
     ? `<div style="color:var(--info);margin-top:4px"><i class="ti ti-calendar"></i> Cada línea se carga en el mes de su pedido: ${mesesTxt}. No hace falta cambiar de mes ni volver a importar.</div>`
     : '';
+  const avisoDup = duplicadas
+    ? `<div style="color:var(--warn);margin-top:4px"><i class="ti ti-copy"></i> Se ignoraron ${duplicadas} líneas repetidas exactas (mismo envío, tipo e importe). Suele pasar cuando se juntan dos exports con rangos que se solapan.</div>`
+    : '';
   const aviso = nMatch===0
     ? `<div style="color:var(--err);font-weight:600;margin-top:4px">⚠️ Ninguna línea cruzó con un pedido cargado. Importá primero el Excel de costos: es el que crea los pedidos con su número de tracking.</div>`
     : (nMatch < pendingFxReport.length
         ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas sin pedido: se ignoran al aplicar (suelen ser envíos cuyo mes todavía no cargaste).</div>`
         : '');
   document.getElementById('fx-report-lbl').innerHTML =
-    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${detalleMeses}${aviso}${sheetHtml}`;
+    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${detalleMeses}${avisoDup}${aviso}${sheetHtml}`;
   document.getElementById('fx-report-preview').style.display='block';
 }
 
