@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v36</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v37</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -1103,6 +1103,10 @@ function faltaShip(o){ return o.shippingARS===''||o.shippingARS==null; }
 function faltaDut(o){ return o.dutiesARS===''||o.dutiesARS==null; }
 function tieneVenta(o){ return o.salePrice!==''&&o.salePrice!=null; }
 
+// Un pedido sin número de tracking todavía no se despachó: se va a enviar más adelante.
+// Es distinto de uno ya enviado al que solo le falta que llegue la factura de FedEx.
+function sinEnviar(o){ return !(o.tracking && String(o.tracking).trim()); }
+
 // Costo de envío por cantidad de botellas, según los pedidos ya facturados de todos
 // los meses. El envío escala con las botellas pero NO en forma lineal: sobre los datos
 // reales, 12 botellas cuestan ~1,6 veces lo de 6 y no el doble, y el costo por botella
@@ -1282,12 +1286,16 @@ function renderDashboard(){
   // cuentan hoy como si no tuvieran costo de logística, así que la ganancia sale inflada.
   const prov = provisionInfo();
   let provARS=0, nPend=0, nPorBotellas=0;
+  let nSinEnviar=0, provSinEnviarARS=0, nEsperandoFactura=0, provEsperandoARS=0;
   m.orders.forEach(o=>{
     if(!tieneVenta(o)) return;
     const pv=provisionDe(o, prov);
     if(pv>0){
       provARS+=pv; nPend++;
       if(provisionEsPorBotellas(o, prov)) nPorBotellas++;
+      // Sin tracking = todavía no salió. Con tracking = ya salió y falta la factura.
+      if(sinEnviar(o)){ nSinEnviar++; provSinEnviarARS+=pv; }
+      else { nEsperandoFactura++; provEsperandoARS+=pv; }
     }
   });
   const provUSD = arsToUsd(provARS);
@@ -1304,7 +1312,9 @@ function renderDashboard(){
   sv2('m-owner','$'+owner.toFixed(2),owner);
   const ownerLbl=document.getElementById('m-owner-lbl');
   if(ownerLbl) ownerLbl.textContent = nPend ? 'Para vos (con provisión)' : 'Para vos';
-  renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas);
+  renderProvision(m, prov, { nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas,
+    nSinEnviar, nEsperandoFactura,
+    provSinEnviarUSD: arsToUsd(provSinEnviarARS), provEsperandoUSD: arsToUsd(provEsperandoARS) });
 
   const compl=m.orders.filter(o=>orderStatus(o)==='complete').length;
   const part=m.orders.filter(o=>orderStatus(o)==='partial').length;
@@ -1331,7 +1341,9 @@ function renderDashboard(){
 
 // Muestra la diferencia entre la ganancia optimista de hoy y la que queda si se
 // descuenta lo que falta facturar, para decidir cuánto se puede retirar sin quedar corto.
-function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas){
+function renderProvision(m, prov, d){
+  const { nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas,
+          nSinEnviar, nEsperandoFactura, provSinEnviarUSD, provEsperandoUSD } = d;
   const el=document.getElementById('d-prov');
   if(!el) return;
   const fx=getFx();
@@ -1386,10 +1398,17 @@ function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provAR
        <strong style="white-space:nowrap;${color?'color:'+color:''}">${val}</strong>
      </div>`;
 
+  const linea=(n,txt,monto,color)=> n
+    ? `<div style="display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:2px 0 2px 10px;border-left:2px solid ${color}">
+         <span>${n} ${txt}</span><span style="color:var(--text2);white-space:nowrap">−$${monto.toFixed(2)}</span>
+       </div>`
+    : '';
+
   el.innerHTML =
-    `<div style="margin-bottom:7px"><strong>${nPend}</strong> pedido${nPend>1?'s':''} de este mes con la venta cobrada y sin la factura de FedEx todavía.
-       <div style="font-size:11px;color:var(--text2);margin-top:2px">Se estima el costo que falta usando la ${origen}.</div>
-     </div>`
+    `<div style="margin-bottom:5px"><strong>${nPend}</strong> pedido${nPend>1?'s':''} de este mes con la venta cobrada y sin su costo de logística.</div>`
+    + linea(nSinEnviar, nSinEnviar>1?'todavía sin enviar (sin tracking)':'todavía sin enviar (sin tracking)', provSinEnviarUSD, 'var(--warn)')
+    + linea(nEsperandoFactura, nEsperandoFactura>1?'ya enviados, esperando la factura de FedEx':'ya enviado, esperando la factura de FedEx', provEsperandoUSD, 'var(--info)')
+    + `<div style="font-size:11px;color:var(--text2);margin:6px 0 2px">Se estima el costo que falta usando la ${origen}.</div>`
     + fila('Ganancia neta del mes','$'+net.toFixed(2),null,'como está hoy: cuenta esas ventas sin su costo de envío')
     + fila('Costo estimado que falta','−$'+provUSD.toFixed(2),'var(--warn)',ars(provARS)+' ARS al cambio $'+fx.toLocaleString('es-AR'))
     + `<div class="divider"></div>`
