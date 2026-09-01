@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v30</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v31</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -372,11 +372,48 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
           En FedEx Billing Online, exportá el reporte de facturas a CSV o Excel. Buscá el que tenga las columnas <strong>Invoice Type</strong>, <strong>Shipper Reference</strong> y <strong>Air Waybill Total Amount</strong>. Subilo acá y se cargan todos los envíos y duties de una, cruzados por número de pedido.
         </p>
+        <details style="margin-bottom:8px">
+          <summary class="setup-summary"><i class="ti ti-help-circle"></i> Cómo exportar el reporte desde FedEx</summary>
+          <div style="border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-top:6px;font-size:12px;line-height:1.6">
+            <p style="margin-bottom:8px">
+              En <strong>FedEx Billing Online</strong> → sección de <strong>descargas / reportes</strong>, se exporta con una
+              <strong>plantilla</strong> que vos definís una sola vez. Lo único que importa es que la plantilla incluya
+              estas <strong>5 columnas</strong> (las 4 primeras son imprescindibles):
+            </p>
+            <div style="overflow-x:auto">
+              <table style="width:100%;font-size:11px;border-collapse:collapse">
+                <thead><tr>
+                  <th style="text-align:left;padding:4px 7px;background:var(--bg2);border-bottom:1px solid var(--border)">Columna (cuenta en español)</th>
+                  <th style="text-align:left;padding:4px 7px;background:var(--bg2);border-bottom:1px solid var(--border)">Si la cuenta está en inglés</th>
+                  <th style="text-align:left;padding:4px 7px;background:var(--bg2);border-bottom:1px solid var(--border)">Para qué la usa la app</th>
+                </tr></thead>
+                <tbody>
+                  <tr><td style="padding:4px 7px;border-bottom:1px solid var(--border)"><strong>Tipo de factura</strong></td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Invoice Type</td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Separar <strong>envío</strong> (Transporte) de <strong>duties</strong> (Impuestos/Aranceles)</td></tr>
+                  <tr><td style="padding:4px 7px;border-bottom:1px solid var(--border)"><strong>Referencia del remitente 1</strong></td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Shipper Reference 1</td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Cruzar con el <strong>número de pedido</strong> (ej. #2702)</td></tr>
+                  <tr><td style="padding:4px 7px;border-bottom:1px solid var(--border)"><strong>Monto total guía aérea</strong></td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Air Waybill Total Amount</td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">El <strong>monto en pesos</strong> que se carga</td></tr>
+                  <tr><td style="padding:4px 7px;border-bottom:1px solid var(--border)"><strong>Número de guía aérea</strong></td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Air Waybill Number</td><td style="padding:4px 7px;border-bottom:1px solid var(--border)">Plan B para cruzar cuando FedEx no manda la referencia (pasa seguido)</td></tr>
+                  <tr><td style="padding:4px 7px"><strong>Número de factura FedEx</strong></td><td style="padding:4px 7px">Invoice Number</td><td style="padding:4px 7px">Solo informativo, para saber de qué factura salió (opcional)</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="banner warn" style="margin-top:10px;font-size:11px">
+              <i class="ti ti-bulb" style="flex-shrink:0"></i>
+              <div>
+                <strong>Para no volver a buscar cuál plantilla era:</strong> nombrala <code>ARGEWINE-APP</code> y usá siempre esa.
+                Si te falta alguna columna, la app te va a decir exactamente cuál cuando subas el archivo.
+              </div>
+            </div>
+            <p style="margin-top:8px;color:var(--text2)">
+              Sirven <strong>.XLSX</strong> y <strong>.CSV</strong>. Si el Excel trae varias hojas, la app usa la que corresponde
+              al mes seleccionado y, si no, te deja elegirla a mano después de subirlo.
+            </p>
+          </div>
+        </details>
         <div class="upload-zone" onclick="document.getElementById('fx-report').click()" style="border-color:var(--ok)">
           <input type="file" id="fx-report" accept=".csv,.xlsx,.xls" onchange="importFedexReport(this.files[0])">
           <i class="ti ti-file-spreadsheet" style="font-size:24px;margin-bottom:5px;color:var(--ok)"></i>
           <div style="font-size:13px;font-weight:500">Subir reporte de FedEx (CSV o Excel)</div>
-          <div style="font-size:11px;margin-top:2px">Columnas: Invoice Type · Shipper Reference · Air Waybill Total Amount</div>
+          <div style="font-size:11px;margin-top:2px">Columnas: Tipo de factura · Referencia del remitente 1 · Monto total guía aérea · Número de guía aérea</div>
         </div>
         <div id="fx-report-preview" style="margin-top:8px;display:none">
           <div id="fx-report-lbl" style="font-size:12px;color:var(--text2);margin-bottom:6px"></div>
@@ -1038,6 +1075,16 @@ function orderStatus(o){
 function normalizeOrderNum(s){ return (s||'').replace(/[^0-9\-]/g,'').trim(); }
 function normalizeTrack(s){ return (s||'').replace(/\s/g,'').trim(); }
 
+// Cruza una guía aérea de FedEx contra el tracking cargado en el pedido.
+// Se compara solo por dígitos: los archivos traen el número con y sin espacios.
+function findOrderByAwb(orders, awb){
+  const a = (awb==null?'':String(awb)).replace(/[^0-9]/g,'');
+  if(a.length < 8) return undefined;
+  const digits = o => (o.tracking==null?'':String(o.tracking)).replace(/[^0-9]/g,'');
+  return (orders||[]).find(o => digits(o) === a)
+      || (orders||[]).find(o => { const d = digits(o); return d.length>=10 && d.includes(a.substring(0,10)); });
+}
+
 // Clave canónica para cruzar pedidos entre los importadores y el estado guardado.
 // Tolera números (Excel devuelve numéricos), null/undefined, "#1234", espacios y mayúsculas.
 // Antes se comparaba con `o.num.replace('#','')` directo: si algún pedido tenía `num` numérico
@@ -1650,14 +1697,28 @@ function processFxReportRows(rows, sheetInfo){
   if(!rows||!rows.length){ alert('Esa hoja no tiene datos.'); return; }
 
   const keys = Object.keys(rows[0]);
-  // Detección flexible de columnas del reporte de FedEx Billing Online
-  const typeKey = keys.find(k=>/invoice\s*type/i.test(k)) || keys.find(k=>/\btype\b/i.test(k));
-  const refKey  = keys.find(k=>/shipper\s*reference/i.test(k)) || keys.find(k=>/reference\s*1/i.test(k)) || keys.find(k=>/reference/i.test(k));
-  const amtKey  = keys.find(k=>/air\s*waybill\s*total\s*amount/i.test(k)) || keys.find(k=>/total\s*amount/i.test(k)) || keys.find(k=>/amount/i.test(k));
-  const invKey  = keys.find(k=>/invoice\s*number/i.test(k));
+  // Detección flexible de columnas del reporte de FedEx Billing Online.
+  // FedEx exporta los encabezados EN EL IDIOMA DE LA CUENTA, así que hay que
+  // reconocer inglés y español: con la cuenta en español ("Tipo de factura",
+  // "Referencia del remitente 1", "Monto total guía aérea") el reporte entero
+  // se rechazaba porque los patrones eran solo en inglés.
+  const find = (...pats) => { for(const p of pats){ const k = keys.find(k=>p.test(k)); if(k) return k; } };
+  const typeKey = find(/invoice\s*type/i, /tipo\s*de\s*factura/i, /\btype\b/i, /\btipo\b/i);
+  const refKey  = find(/shipper\s*reference/i, /referencia\s*del\s*remitente/i, /reference\s*1/i, /referencia\s*1/i, /reference/i, /referencia/i);
+  const amtKey  = find(/air\s*waybill\s*total\s*amount/i, /monto\s*total\s*(de\s*)?(la\s*)?gu[ií]a/i, /total\s*amount/i, /monto\s*total/i, /amount/i, /\bmonto\b/i);
+  const invKey  = find(/invoice\s*number/i, /n[uú]mero\s*de\s*factura/i);
+  // La guía aérea es el plan B para cruzar: desde agosto 2026 FedEx dejó de mandar
+  // la referencia del remitente y esta columna es lo único que identifica el envío.
+  const awbKey  = find(/air\s*waybill\s*number/i, /n[uú]mero\s*de\s*gu[ií]a/i, /tracking\s*number/i, /\bawb\b/i);
 
   if(!typeKey || !refKey || !amtKey){
-    alert('No se reconocieron las columnas del reporte de FedEx.\nColumnas encontradas:\n'+keys.join(', ')+'\n\nEsperaba: Invoice Type, Shipper Reference 1, Air Waybill Total Amount');
+    const faltan = [];
+    if(!typeKey) faltan.push('• Tipo de factura   (Invoice Type)');
+    if(!refKey)  faltan.push('• Referencia del remitente 1   (Shipper Reference 1)');
+    if(!amtKey)  faltan.push('• Monto total guía aérea   (Air Waybill Total Amount)');
+    alert('A este reporte de FedEx le faltan columnas:\n\n'+faltan.join('\n')+
+      '\n\nColumnas que sí trae el archivo:\n'+keys.join(', ')+
+      '\n\nVolvé a exportar desde FedEx Billing Online con una plantilla que incluya esas columnas.\nEn la app, abrí "Cómo exportar el reporte desde FedEx" para el paso a paso.');
     return;
   }
 
@@ -1665,32 +1726,52 @@ function processFxReportRows(rows, sheetInfo){
   pendingFxReport = [];
   rows.forEach(r => {
     const ref = (r[refKey]||'').toString().trim();
+    const awb = awbKey ? (r[awbKey]||'').toString().trim() : '';
     const typeRaw = (r[typeKey]||'').toString().trim().toLowerCase();
     const amtRaw = (r[amtKey]||'').toString().trim();
-    // Solo filas con referencia de pedido y monto (las filas vacías son AWBs sin cargo separado)
-    if(!ref || !amtRaw) return;
+    // Sirve la fila si tiene monto y ADEMÁS número de pedido O número de guía.
+    // Antes se exigía la referencia y se descartaba todo lo demás: con los reportes
+    // de agosto 2026 en adelante (referencia siempre vacía) eso dejaba 0 líneas.
+    if((!ref && !awb) || !amtRaw) return;
     const amount = parseFlexibleNumber(amtRaw);
     if(amount===null || amount<=0) return;
 
-    // Clasificar tipo: "Transportation" -> shipping, "Duty/Tax" o "Duty" -> duties
+    // Clasificar tipo: "Transportation"/"Transporte" -> envío; "Duty/Tax"/"Impuestos/aranceles" -> duties
     let type;
-    if(/duty|tax|impuesto|aduana/.test(typeRaw)) type='duties';
+    if(/duty|tax|impuesto|arancel|aduana/.test(typeRaw)) type='duties';
     else if(/transport|env[ií]o|flete|freight/.test(typeRaw)) type='shipping';
     else type='shipping'; // por defecto, transporte
 
-    // Cruzar con pedido del sistema
-    const matched = orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(ref));
+    // 1º por número de pedido; 2º por número de guía contra el tracking del pedido
+    let matched=null, matchSrc='';
+    if(ref){
+      matched = orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(ref));
+      if(matched) matchSrc='pedido';
+    }
+    if(!matched && awb){
+      matched = findOrderByAwb(orders, awb);
+      if(matched) matchSrc='guia';
+    }
 
     pendingFxReport.push({
-      orderRef: ref,
+      orderRef: ref || awb,
+      awb,
+      byAwbOnly: !ref,
       type,
       amountARS: amount,
       matchedOrderNum: matched ? matched.num : '',
+      matchSrc,
       invoice: invKey ? (r[invKey]||'') : ''
     });
   });
 
-  if(!pendingFxReport.length){ alert('No se encontraron filas con pedido y monto válidos en el reporte.'); return; }
+  if(!pendingFxReport.length){
+    alert('El reporte no tiene ninguna línea usable.\n\n'+
+      'Cada línea necesita un monto y, además, número de pedido (Referencia del remitente 1) '+
+      'o número de guía aérea.\n\n'+
+      (awbKey ? '' : 'Este archivo no trae la columna "Número de guía aérea": agregala a la plantilla de FedEx y volvé a exportar.'));
+    return;
+  }
 
   // Preview
   const tbody = document.getElementById('fx-report-body');
@@ -1699,10 +1780,11 @@ function processFxReportRows(rows, sheetInfo){
       ? '<span class="badge ok" style="font-size:10px">envío</span>'
       : '<span class="badge warn" style="font-size:10px">duties</span>';
     const matchLabel = e.matchedOrderNum
-      ? '<span class="badge ok" style="font-size:10px">'+e.matchedOrderNum+'</span>'
+      ? '<span class="badge ok" style="font-size:10px">'+e.matchedOrderNum+'</span>'+
+        (e.matchSrc==='guia' ? '<div style="font-size:9px;color:var(--text2)">por guía aérea</div>' : '')
       : '<span class="badge err" style="font-size:10px">sin pedido</span>';
     return `<tr>
-      <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${e.orderRef}</td>
+      <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${e.orderRef}${e.byAwbOnly?'<div style="font-size:9px;color:var(--text2)">guía aérea (sin referencia)</div>':''}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${tipoLabel}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:right;font-weight:500">$${e.amountARS.toLocaleString('es-AR')}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:center">${matchLabel}</td>
@@ -1712,9 +1794,19 @@ function processFxReportRows(rows, sheetInfo){
   const nShip = pendingFxReport.filter(e=>e.type==='shipping').length;
   const nDut  = pendingFxReport.filter(e=>e.type==='duties').length;
   const nMatch = pendingFxReport.filter(e=>e.matchedOrderNum).length;
+  const nPorPedido = pendingFxReport.filter(e=>e.matchSrc==='pedido').length;
+  const nPorGuia   = pendingFxReport.filter(e=>e.matchSrc==='guia').length;
   const sheetHtml = sheetSelectorHTML(sheetInfo, 'fx-report-sheet-sel', 'onFxReportSheetChange');
+  const comoCruzo = nMatch
+    ? ` (${nPorPedido} por número de pedido, ${nPorGuia} por número de guía)`
+    : '';
+  const aviso = nMatch===0
+    ? `<div style="color:var(--err);font-weight:600;margin-top:4px">⚠️ Ninguna línea cruzó con un pedido del mes ${cur}. Importá primero el Excel de costos (crea los pedidos con su tracking) y fijate que el mes seleccionado sea el correcto.</div>`
+    : (nMatch < pendingFxReport.length
+        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas quedaron sin pedido: se van a ignorar al aplicar.</div>`
+        : '');
   document.getElementById('fx-report-lbl').innerHTML =
-    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas con pedidos del sistema${sheetHtml}`;
+    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${aviso}${sheetHtml}`;
   document.getElementById('fx-report-preview').style.display='block';
 }
 
