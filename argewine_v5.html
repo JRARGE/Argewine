@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v40</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v41</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -656,9 +656,10 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
           <button class="btn sm" onclick="saveCfg('duty','cfg-duty')">OK</button>
         </div>
         <p style="font-size:11px;color:var(--text2);margin-top:4px">
-          FedEx cobra un cargo fijo por envío, pero una parte de los envíos además paga
-          <strong>arancel aduanero real</strong>, que puede ser varias veces ese cargo.
-          Vacío = promedio de tus envíos ya facturados, que incluye esa cola.
+          Es el <strong>servicio de transferencia de documentos</strong> que cobra FedEx por envío.
+          Los impuestos de importación que pagás como agente aduanero no van acá:
+          cargalos en <strong>Gastos</strong>, que no son por pedido.
+          Vacío = mediana de tus envíos ya facturados.
           <span id="cfg-duty-auto"></span>
         </p>
         <p style="font-size:11px;color:var(--text2);margin-top:6px">
@@ -1197,18 +1198,22 @@ function provisionInfo(){
     });
   });
   const med = a => { if(!a.length) return 0; const b=a.slice().sort((x,y)=>x-y); return b[Math.floor((b.length-1)/2)]; };
-  // Duties: FedEx cobra un cargo fijo por envío (13,75 USD al momento de escribir esto)
-  // pero una parte de los envíos además paga arancel aduanero real, que puede ser varias
-  // veces ese monto. Por eso se usa el PROMEDIO y no la mediana: sobre julio 2026, 31 de
-  // 79 envíos facturados pagaron arancel y la mediana los ignoraba por completo, dejando
-  // la provisión corta. Se puede fijar un valor propio en USD desde Config.
+  // Duties: FedEx cobra un cargo fijo por envío (13,75 USD) por el servicio de
+  // transferencia de documentos. Los impuestos de importación los paga el usuario
+  // aparte, como agente aduanero, y van a Gastos generales — no por pedido.
+  //
+  // Se usa la MEDIANA y no el promedio a propósito: hasta mediados de 2026 FedEx
+  // actuaba como agente aduanero y facturaba también el arancel real, que era varias
+  // veces el cargo fijo. Esos importes viejos siguen en el historial y contaminan el
+  // promedio (lo llevan de ~14 a ~27 USD) con plata que ya no se paga. La mediana cae
+  // en el cargo fijo aunque esa cola esté presente.
   const dutyManual = parseFloat(localStorage.getItem('aw_duty'));
-  const dutyPromARS = duts.length ? duts.reduce((a,b)=>a+b,0)/duts.length : 0;
+  const dutyMedARS = med(duts);
   const fxAhora = getFx();
   const manualRaw = parseFloat(localStorage.getItem('aw_prov'));
   return {
     dutyManualUSD: (!isNaN(dutyManual) && dutyManual>0) ? dutyManual : null,
-    dutyARS: (!isNaN(dutyManual) && dutyManual>0 && fxAhora) ? dutyManual*fxAhora : dutyPromARS,
+    dutyARS: (!isNaN(dutyManual) && dutyManual>0 && fxAhora) ? dutyManual*fxAhora : dutyMedARS,
     manual: (!isNaN(manualRaw) && manualRaw>0) ? manualRaw : null,
     ship: med(ships), dut: med(duts),
     nShip: ships.length, nDut: duts.length,
@@ -1423,7 +1428,7 @@ function renderProvision(m, prov, d){
     dutyAuto.innerHTML = prov.dutyManualUSD!=null
       ? `Ahora estás usando <strong>$${prov.dutyManualUSD.toFixed(2)} USD</strong> fijos.`
       : (prov.nDut
-          ? `Hoy el automático es <strong>$${(fx?prov.dutyARS/fx:0).toFixed(2)} USD</strong> por envío, promedio de ${prov.nDut} ya facturados.`
+          ? `Hoy el automático es <strong>$${(fx?prov.dutyARS/fx:0).toFixed(2)} USD</strong> por envío, mediana de ${prov.nDut} ya facturados.`
           : 'Todavía no hay envíos con duties facturados como para calcularlo.');
   }
   const autoTxt=document.getElementById('cfg-prov-auto');
@@ -1468,7 +1473,7 @@ function renderProvision(m, prov, d){
          Los duties se estiman en <strong>$${(prov.dutyARS/fx).toFixed(2)} USD por envío</strong>`+
       (prov.dutyManualUSD!=null
         ? ' (valor fijado por vos en Config).'
-        : `, promedio de tus ${prov.nDut} envíos ya facturados. Incluye tanto el cargo fijo de FedEx como los envíos que además pagaron arancel aduanero real.`)+
+        : `, mediana de tus ${prov.nDut} envíos ya facturados. Es el servicio de transferencia de documentos de FedEx; los impuestos de importación van aparte, en Gastos.`)+
       `</div>`
     : '';
   const ratioTxt = (prov.ratio>0 && provProdUSD>0)
