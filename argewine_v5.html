@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v32</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v33</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -1092,14 +1092,32 @@ function orderStatus(o){
 function normalizeOrderNum(s){ return (s||'').replace(/[^0-9\-]/g,'').trim(); }
 function normalizeTrack(s){ return (s||'').replace(/\s/g,'').trim(); }
 
+// Dígitos de una guía aérea o tracking, para comparar sin espacios ni guiones.
+function awbDigits(v){
+  const d = (v==null?'':String(v)).replace(/[^0-9]/g,'');
+  return d.length>=8 ? d : '';
+}
+
 // Cruza una guía aérea de FedEx contra el tracking cargado en el pedido.
-// Se compara solo por dígitos: los archivos traen el número con y sin espacios.
+// La comparación es EXACTA: las guías son de 12 dígitos y hay guías distintas que
+// comparten los primeros 10 (525173582570 / 525173582591 / 525173582547...), así que
+// un match por prefijo cargaría el importe en el pedido equivocado. Mejor no cruzar
+// que cruzar mal: una línea sin pedido se ve en el preview, un importe mal cargado no.
 function findOrderByAwb(orders, awb){
-  const a = (awb==null?'':String(awb)).replace(/[^0-9]/g,'');
-  if(a.length < 8) return undefined;
-  const digits = o => (o.tracking==null?'':String(o.tracking)).replace(/[^0-9]/g,'');
-  return (orders||[]).find(o => digits(o) === a)
-      || (orders||[]).find(o => { const d = digits(o); return d.length>=10 && d.includes(a.substring(0,10)); });
+  const a = awbDigits(awb);
+  if(!a) return undefined;
+  return (orders||[]).find(o => awbDigits(o.tracking) === a);
+}
+
+// Todos los pedidos de todos los meses, con el mes al que pertenece cada uno.
+// El reporte de FedEx se exporta con un rango amplio a propósito (FedEx no factura
+// todo en fecha), así que siempre trae envíos de meses distintos al seleccionado.
+function allOrdersIndexed(){
+  const out = [];
+  Object.keys(S.months||{}).forEach(mk => {
+    (S.months[mk].orders||[]).forEach(o => out.push({ o, mk }));
+  });
+  return out;
 }
 
 // Clave canónica para cruzar pedidos entre los importadores y el estado guardado.
@@ -1588,7 +1606,18 @@ REGLAS FINALES:
       }
       // Secondary: match by tracking AWB (Referencia field)
       if(!e.matchedOrderNum && e.awb){
-        const byTrack=orders.find(o=>o.tracking&&normalizeTrack(o.tracking).includes(normalizeTrack(e.awb).substring(0,10)));
+        let byTrack = findOrderByAwb(orders, e.awb); // exacto por dígitos
+        if(!byTrack){
+          // La guía leída de un PDF puede venir incompleta o mal reconocida, así que se
+          // acepta un match parcial — pero SOLO si es inequívoco. Hay guías distintas que
+          // comparten los primeros 10 dígitos: con más de un candidato no se cruza nada,
+          // porque una línea sin pedido se ve en el preview y un importe mal cargado no.
+          const p = normalizeTrack(e.awb).replace(/[^0-9]/g,'').substring(0,10);
+          if(p.length>=10){
+            const cand = orders.filter(o=>o.tracking && normalizeTrack(o.tracking).replace(/[^0-9]/g,'').includes(p));
+            if(cand.length===1) byTrack = cand[0];
+          }
+        }
         if(byTrack){ e.matchedOrderNum=byTrack.num; e.matchConfidence='medium'; e._src='tracking'; }
       }
     }
@@ -1739,7 +1768,8 @@ function processFxReportRows(rows, sheetInfo){
     return;
   }
 
-  const orders = gm().orders;
+  gm(); // asegura que el mes actual exista antes de indexar
+  const todos = allOrdersIndexed();
   pendingFxReport = [];
   rows.forEach(r => {
     const ref = (r[refKey]||'').toString().trim();
@@ -1759,15 +1789,19 @@ function processFxReportRows(rows, sheetInfo){
     else if(/transport|env[ií]o|flete|freight/.test(typeRaw)) type='shipping';
     else type='shipping'; // por defecto, transporte
 
-    // 1º por número de pedido; 2º por número de guía contra el tracking del pedido
-    let matched=null, matchSrc='';
+    // 1º por número de pedido; 2º por número de guía contra el tracking del pedido.
+    // Se busca en todos los meses: el cargo va al mes donde vive el pedido, no al
+    // mes que esté seleccionado en pantalla.
+    let hit=null, matchSrc='';
     if(ref){
-      matched = orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(ref));
-      if(matched) matchSrc='pedido';
+      const nr = normalizeOrderNum(ref);
+      hit = todos.find(x=>normalizeOrderNum(x.o.num)===nr);
+      if(hit) matchSrc='pedido';
     }
-    if(!matched && awb){
-      matched = findOrderByAwb(orders, awb);
-      if(matched) matchSrc='guia';
+    if(!hit && awb){
+      const a = awbDigits(awb);
+      if(a) hit = todos.find(x=>awbDigits(x.o.tracking)===a);
+      if(hit) matchSrc='guia';
     }
 
     pendingFxReport.push({
@@ -1776,7 +1810,8 @@ function processFxReportRows(rows, sheetInfo){
       byAwbOnly: !ref,
       type,
       amountARS: amount,
-      matchedOrderNum: matched ? matched.num : '',
+      matchedOrderNum: hit ? hit.o.num : '',
+      matchedMonth: hit ? hit.mk : '',
       matchSrc,
       invoice: invKey ? (r[invKey]||'') : ''
     });
@@ -1796,9 +1831,11 @@ function processFxReportRows(rows, sheetInfo){
     const tipoLabel = e.type==='shipping'
       ? '<span class="badge ok" style="font-size:10px">envío</span>'
       : '<span class="badge warn" style="font-size:10px">duties</span>';
+    const otroMes = e.matchedOrderNum && e.matchedMonth && e.matchedMonth!==cur;
     const matchLabel = e.matchedOrderNum
       ? '<span class="badge ok" style="font-size:10px">'+e.matchedOrderNum+'</span>'+
-        (e.matchSrc==='guia' ? '<div style="font-size:9px;color:var(--text2)">por guía aérea</div>' : '')
+        (e.matchSrc==='guia' ? '<div style="font-size:9px;color:var(--text2)">por guía aérea</div>' : '')+
+        (otroMes ? '<div style="font-size:9px;color:var(--info)">va a '+e.matchedMonth+'</div>' : '')
       : '<span class="badge err" style="font-size:10px">sin pedido</span>';
     return `<tr>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${e.orderRef}${e.byAwbOnly?'<div style="font-size:9px;color:var(--text2)">guía aérea (sin referencia)</div>':''}</td>
@@ -1817,53 +1854,74 @@ function processFxReportRows(rows, sheetInfo){
   const comoCruzo = nMatch
     ? ` (${nPorPedido} por número de pedido, ${nPorGuia} por número de guía)`
     : '';
+  // Desglose por mes: el reporte cruza meses y cada línea va al mes de su pedido.
+  const porMes = {};
+  pendingFxReport.forEach(e=>{ if(e.matchedMonth) porMes[e.matchedMonth]=(porMes[e.matchedMonth]||0)+1; });
+  const mesesTxt = Object.keys(porMes).sort().map(mk=>`${porMes[mk]} a ${mk}`).join(' · ');
+  const detalleMeses = Object.keys(porMes).length>1
+    ? `<div style="color:var(--info);margin-top:4px"><i class="ti ti-calendar"></i> Cada línea se carga en el mes de su pedido: ${mesesTxt}. No hace falta cambiar de mes ni volver a importar.</div>`
+    : '';
   const aviso = nMatch===0
-    ? `<div style="color:var(--err);font-weight:600;margin-top:4px">⚠️ Ninguna línea cruzó con un pedido del mes ${cur}. Importá primero el Excel de costos (crea los pedidos con su tracking) y fijate que el mes seleccionado sea el correcto.</div>`
+    ? `<div style="color:var(--err);font-weight:600;margin-top:4px">⚠️ Ninguna línea cruzó con un pedido cargado. Importá primero el Excel de costos: es el que crea los pedidos con su número de tracking.</div>`
     : (nMatch < pendingFxReport.length
-        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas quedaron sin pedido: se van a ignorar al aplicar.</div>`
+        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas sin pedido: se ignoran al aplicar (suelen ser envíos cuyo mes todavía no cargaste).</div>`
         : '');
   document.getElementById('fx-report-lbl').innerHTML =
-    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${aviso}${sheetHtml}`;
+    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${detalleMeses}${aviso}${sheetHtml}`;
   document.getElementById('fx-report-preview').style.display='block';
 }
 
 function applyFedexReport(){
   if(!pendingFxReport.length) return;
-  const m = gm();
   const modeEl = document.querySelector('input[name="fxr-mode"]:checked');
   const replaceMode = !modeEl || modeEl.value==='replace';
 
-  // En modo reemplazar: primero poner en cero los campos de los pedidos afectados
+  // Cada línea se aplica al pedido en el mes donde vive, no en el mes seleccionado:
+  // el reporte de FedEx siempre trae envíos de varios meses.
+  const buscar = e => {
+    const mk = e.matchedMonth || cur;
+    const mes = (S.months||{})[mk];
+    if(!mes || !mes.orders) return null;
+    return mes.orders.find(o=>o.num===e.matchedOrderNum) || null;
+  };
+
+  // En modo reemplazar: poner en cero una sola vez por pedido+tipo antes de sumar.
   if(replaceMode){
-    const affectShip=new Set(), affectDut=new Set();
+    const yaCero = new Set();
     pendingFxReport.forEach(e=>{
       if(!e.matchedOrderNum) return;
-      if(e.type==='shipping') affectShip.add(e.matchedOrderNum);
-      else affectDut.add(e.matchedOrderNum);
-    });
-    m.orders.forEach(o=>{
-      if(affectShip.has(o.num)) o.shippingARS='0';
-      if(affectDut.has(o.num)) o.dutiesARS='0';
+      const o = buscar(e);
+      if(!o) return;
+      const k = (e.matchedMonth||cur)+'|'+o.num+'|'+e.type;
+      if(yaCero.has(k)) return;
+      yaCero.add(k);
+      if(e.type==='shipping') o.shippingARS='0'; else o.dutiesARS='0';
     });
   }
 
   let applied=0, noMatch=0;
+  const mesesTocados = {};
   pendingFxReport.forEach(e=>{
     if(!e.matchedOrderNum){ noMatch++; return; }
-    const order = m.orders.find(o=>o.num===e.matchedOrderNum);
+    const order = buscar(e);
     if(!order){ noMatch++; return; }
     if(e.type==='shipping'){
       order.shippingARS = ((parseFloat(order.shippingARS)||0)+e.amountARS).toFixed(2);
     } else {
       order.dutiesARS = ((parseFloat(order.dutiesARS)||0)+e.amountARS).toFixed(2);
     }
+    const mk = e.matchedMonth||cur;
+    mesesTocados[mk] = (mesesTocados[mk]||0)+1;
     applied++;
   });
 
   pendingFxReport=[];
   document.getElementById('fx-report-preview').style.display='none';
-  schedSave(); renderOrders(); renderDashboard();
-  alert(`✓ Reporte de FedEx aplicado:\n• ${applied} líneas cargadas a sus pedidos\n• ${noMatch} líneas sin pedido coincidente (se ignoraron)\n\nModo: ${replaceMode?'Reemplazar':'Sumar'}.`);
+  schedSave(); renderAll();
+  const detalle = Object.keys(mesesTocados).sort().map(mk=>`   · ${mk}: ${mesesTocados[mk]} líneas`).join('\n');
+  alert(`✓ Reporte de FedEx aplicado:\n• ${applied} líneas cargadas a sus pedidos\n`+
+    (Object.keys(mesesTocados).length ? `\nRepartidas por mes:\n${detalle}\n` : '')+
+    `\n• ${noMatch} líneas sin pedido coincidente (se ignoraron)\n\nModo: ${replaceMode?'Reemplazar':'Sumar'}.`);
 }
 
 function applyAwbs(){
