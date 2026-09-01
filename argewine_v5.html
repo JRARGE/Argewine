@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v35</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v36</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -348,7 +348,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         </div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th style="width:30px;text-align:center"><input type="checkbox" id="orders-chk-all" onclick="toggleAllOrders(this.checked)" title="Seleccionar todos"></th><th>Pedido</th><th>Tracking</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th style="width:30px;text-align:center"><input type="checkbox" id="orders-chk-all" onclick="toggleAllOrders(this.checked)" title="Seleccionar todos"></th><th>Pedido</th><th>Tracking</th><th title="Cantidad de botellas del pedido">Bot.</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
             <tbody id="orders-tb"></tbody>
           </table>
         </div>
@@ -1103,6 +1103,50 @@ function faltaShip(o){ return o.shippingARS===''||o.shippingARS==null; }
 function faltaDut(o){ return o.dutiesARS===''||o.dutiesARS==null; }
 function tieneVenta(o){ return o.salePrice!==''&&o.salePrice!=null; }
 
+// Costo de envío por cantidad de botellas, según los pedidos ya facturados de todos
+// los meses. El envío escala con las botellas pero NO en forma lineal: sobre los datos
+// reales, 12 botellas cuestan ~1,6 veces lo de 6 y no el doble, y el costo por botella
+// baja de ~$20.900 (4 botellas) a ~$12.600 (16). Por eso se guarda la mediana de cada
+// cantidad y se interpola, en vez de usar un promedio plano por pedido.
+function shippingCurve(){
+  const porBotellas = {};
+  Object.values(S.months||{}).forEach(mes=>{
+    (mes.orders||[]).forEach(o=>{
+      const b = parseInt(o.bottles,10), sh = parseFloat(o.shippingARS);
+      if(b>0 && !isNaN(sh) && sh>0) (porBotellas[b] = porBotellas[b]||[]).push(sh);
+    });
+  });
+  const med = a => { const c=a.slice().sort((x,y)=>x-y); return c[Math.floor((c.length-1)/2)]; };
+  const puntos = Object.keys(porBotellas).map(Number).sort((a,b)=>a-b)
+    .map(b => ({ b, ars: med(porBotellas[b]), n: porBotellas[b].length }));
+
+  // Las cantidades con una sola muestra traen ruido y a veces dan MENOS que una
+  // cantidad menor (5 botellas saliendo menos que 4, por ejemplo). Eso rompía la
+  // interpolación: 10 botellas llegaba a estimar menos que 8. Como el envío nunca
+  // baja al agregar botellas, se fuerza que la curva no decrezca.
+  let piso = 0;
+  puntos.forEach(p => { if(p.ars < piso) p.ars = piso; else piso = p.ars; });
+  return puntos;
+}
+
+// Estima el envío para una cantidad de botellas a partir de la curva.
+// Entre dos cantidades conocidas interpola; fuera del rango usa el costo por botella
+// del punto más cercano. Devuelve null si no hay con qué estimar.
+function estimarEnvio(bottles, puntos){
+  const b = parseInt(bottles,10);
+  if(!puntos || !puntos.length || !(b>0)) return null;
+  const exacto = puntos.find(p=>p.b===b);
+  if(exacto) return exacto.ars;
+  const primero = puntos[0], ultimo = puntos[puntos.length-1];
+  if(b < primero.b) return primero.ars/primero.b*b;
+  if(b > ultimo.b)  return ultimo.ars/ultimo.b*b;
+  for(let i=0;i<puntos.length-1;i++){
+    const a=puntos[i], c=puntos[i+1];
+    if(b>a.b && b<c.b) return a.ars + (b-a.b)/(c.b-a.b)*(c.ars-a.ars);
+  }
+  return null;
+}
+
 // Cuánto suele costar envío y duties, según los pedidos que YA se facturaron completos,
 // mirando todos los meses. Se usa la mediana y no el promedio para que un envío atípico
 // no distorsione la estimación.
@@ -1120,7 +1164,8 @@ function provisionInfo(){
   return {
     manual: (!isNaN(manualRaw) && manualRaw>0) ? manualRaw : null,
     ship: med(ships), dut: med(duts),
-    nShip: ships.length, nDut: duts.length
+    nShip: ships.length, nDut: duts.length,
+    curva: shippingCurve()
   };
 }
 
@@ -1129,7 +1174,19 @@ function provisionDe(o, p){
   const fs=faltaShip(o), fd=faltaDut(o);
   if(!fs && !fd) return 0;
   if(p.manual!=null) return p.manual;
-  return (fs?p.ship:0)+(fd?p.dut:0);
+  let ship = 0;
+  if(fs){
+    // Si el pedido tiene cargada la cantidad de botellas, se estima con la curva.
+    // Si no, se cae a la mediana plana, que es peor pero es lo que hay.
+    const porCurva = estimarEnvio(o.bottles, p.curva);
+    ship = (porCurva!=null) ? porCurva : p.ship;
+  }
+  return ship + (fd?p.dut:0);
+}
+
+// ¿Este pedido se estimó por botellas o con la mediana plana?
+function provisionEsPorBotellas(o, p){
+  return p.manual==null && faltaShip(o) && estimarEnvio(o.bottles, p.curva)!=null;
 }
 
 function orderStatus(o){
@@ -1224,11 +1281,14 @@ function renderDashboard(){
   // Provisión: los pedidos ya cobrados a los que todavía no les llegó la factura de FedEx
   // cuentan hoy como si no tuvieran costo de logística, así que la ganancia sale inflada.
   const prov = provisionInfo();
-  let provARS=0, nPend=0;
+  let provARS=0, nPend=0, nPorBotellas=0;
   m.orders.forEach(o=>{
     if(!tieneVenta(o)) return;
     const pv=provisionDe(o, prov);
-    if(pv>0){ provARS+=pv; nPend++; }
+    if(pv>0){
+      provARS+=pv; nPend++;
+      if(provisionEsPorBotellas(o, prov)) nPorBotellas++;
+    }
   });
   const provUSD = arsToUsd(provARS);
   const netProv = net - provUSD;
@@ -1244,7 +1304,7 @@ function renderDashboard(){
   sv2('m-owner','$'+owner.toFixed(2),owner);
   const ownerLbl=document.getElementById('m-owner-lbl');
   if(ownerLbl) ownerLbl.textContent = nPend ? 'Para vos (con provisión)' : 'Para vos';
-  renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS);
+  renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas);
 
   const compl=m.orders.filter(o=>orderStatus(o)==='complete').length;
   const part=m.orders.filter(o=>orderStatus(o)==='partial').length;
@@ -1271,7 +1331,7 @@ function renderDashboard(){
 
 // Muestra la diferencia entre la ganancia optimista de hoy y la que queda si se
 // descuenta lo que falta facturar, para decidir cuánto se puede retirar sin quedar corto.
-function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS){
+function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS, nPorBotellas){
   const el=document.getElementById('d-prov');
   if(!el) return;
   const fx=getFx();
@@ -1304,11 +1364,22 @@ function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provAR
       'Cargá un reporte de FedEx, o poné una provisión manual por pedido en <strong>Config</strong>.</div>';
     return;
   }
+  const sinBotellas = nPend - nPorBotellas;
   const origen = prov.manual!=null
     ? `provisión manual de ${ars(prov.manual)} ARS por pedido (Config)`
-    : (prov.nShip
-        ? `mediana de tus ${prov.nShip} envíos ya facturados: ${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties`
-        : 'todavía sin historial para estimar');
+    : (nPorBotellas
+        ? `curva de costo por cantidad de botellas de tus envíos ya facturados`+
+          (sinBotellas ? `, y la mediana plana en ${sinBotellas} pedido${sinBotellas>1?'s':''} sin botellas cargadas` : '')
+        : (prov.nShip
+            ? `mediana de tus ${prov.nShip} envíos ya facturados: ${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties`
+            : 'todavía sin historial para estimar'));
+  // La curva, para que se vea de dónde sale el número
+  const curvaTxt = (prov.manual==null && prov.curva.length)
+    ? `<div style="font-size:11px;color:var(--text2);margin-top:6px">
+         <strong>Costo de envío por cantidad de botellas</strong> (mediana de tus pedidos facturados, entre paréntesis cuántos):<br>`+
+      prov.curva.map(p=>`${p.b} bot. → ${ars(p.ars)}<span style="color:var(--text3)"> (${p.n})</span>`).join(' · ')+
+      `</div>`
+    : '';
   const fila=(lbl,val,color,nota)=>
     `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0">
        <span>${lbl}${nota?`<div style="font-size:10px;color:var(--text3)">${nota}</div>`:''}</span>
@@ -1325,6 +1396,10 @@ function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provAR
     + fila('<strong>Ganancia realista de hoy</strong>','$'+netProv.toFixed(2), netProv>=0?'var(--ok)':'var(--err)')
     + fila('Podés retirar ('+ownerPct+'%)','$'+(netProv*(ownerPct/100)).toFixed(2),'var(--ok)')
     + fila('Reserva a no tocar','$'+provUSD.toFixed(2),'var(--warn)','guardalo hasta que llegue la factura de FedEx')
+    + curvaTxt
+    + (sinBotellas && prov.manual==null
+        ? `<div style="font-size:11px;color:var(--warn);margin-top:6px"><i class="ti ti-alert-triangle"></i> ${sinBotellas} pedido${sinBotellas>1?'s':''} sin cantidad de botellas: se estimó con la mediana plana, que es menos precisa. Cargá las botellas en la tabla de Pedidos o importá las ventas de Shopify.</div>`
+        : '')
     + `<div style="font-size:11px;color:var(--text2);margin-top:7px">
          Cuando importes el reporte de FedEx, estos costos se cargan solos en los pedidos y este bloque se vacía.
          La ganancia de arriba pasa a ser la definitiva.
@@ -1343,7 +1418,7 @@ function renderOrders(){
   const m=gm();
   const tb=document.getElementById('orders-tb');
   if(!m.orders.length){
-    tb.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text2);padding:18px">Sin pedidos. Agregá uno arriba.</td></tr>';
+    tb.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text2);padding:18px">Sin pedidos. Agregá uno arriba.</td></tr>';
     updateBulkBar(); return;
   }
   tb.innerHTML=m.orders.map((o,i)=>{
@@ -1365,6 +1440,7 @@ function renderOrders(){
       <td style="text-align:center"><input type="checkbox" class="ord-chk" data-num="${attrNum}" onchange="updateBulkBar()" title="Seleccionar para borrado múltiple"></td>
       <td class="editable-cell" ${ed('num')} title="Clic para editar el número de pedido"><strong>${o.num}</strong>${o.notes?`<div style="font-size:10px;color:var(--text2)">${o.notes}</div>`:''}</td>
       <td class="editable-cell" ${ed('tracking')} title="Clic para editar el tracking" style="font-size:10px;font-family:monospace;color:var(--text2)">${trk}</td>
+      <td class="editable-cell" ${ed('bottles')} title="Cantidad de botellas — clic para editar. Se usa para estimar el envío que falta facturar." style="text-align:center;${!(parseInt(o.bottles,10)>0)?'color:var(--text3)':''}">${parseInt(o.bottles,10)>0?o.bottles:'—'} <i class="ti ti-pencil edit-pencil"></i></td>
       <td class="editable-cell" ${ed('salePrice')} title="Venta en USD — clic para editar">$${u.sale.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
       <td class="editable-cell" ${ed('productCostARS')} title="${hasProd?arsTip(o.productCostARS):'Clic para editar'}" style="${!hasProd?'color:var(--text3)':''}">$${u.product.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
       <td class="editable-cell" ${ed('shippingARS')} title="${hasShip?arsTip(o.shippingARS):'Clic para editar'}" style="${!hasShip?'color:var(--text3)':''}">$${u.shipping.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
@@ -1420,6 +1496,7 @@ function delSelectedOrders(){
 const ORDER_FIELDS = {
   num:            { label:'número de pedido',   kind:'text' },
   tracking:       { label:'tracking',           kind:'text' },
+  bottles:        { label:'cantidad de botellas', kind:'int' },
   salePrice:      { label:'precio de venta',    kind:'usd'  },
   productCostARS: { label:'costo de productos', kind:'ars'  },
   shippingARS:    { label:'costo de envío',     kind:'ars'  },
@@ -1449,6 +1526,20 @@ function editOrderField(i, num, field){
       if(dup){ alert('Ya existe el pedido '+dup.num+' en este mes. Usá otro número.'); return; }
     }
     o[field]=limpio;
+
+  } else if(spec.kind==='int'){
+    const msg='Editar '+spec.label+' del pedido '+o.num+'\n\n'+
+      'Se usa para estimar el costo de envío mientras no llegue la factura de FedEx.\n'+
+      (actual!=='' ? 'Valor actual: '+actual : 'Sin valor cargado.')+
+      '\n\n(Dejalo vacío para borrarlo)';
+    const val=prompt(msg, actual);
+    if(val===null) return;
+    if(val.trim()===''){ o[field]=''; }
+    else{
+      const n=parseInt(val.replace(/[^0-9]/g,''),10);
+      if(isNaN(n)||n<0){ alert('Cantidad inválida. Ingresá un número entero de botellas.'); return; }
+      o[field]=String(n);
+    }
 
   } else if(spec.kind==='usd'){
     const msg='Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en USD.\n'+
@@ -2819,6 +2910,21 @@ function processShopifyRows(rows, sheetInfo){
     return;
   }
 
+  // El export de Shopify trae una fila por producto: hay que SUMAR las cantidades
+  // de todas las líneas del pedido para saber cuántas botellas lleva.
+  const qtyKey = keys.find(k => /^lineitem\s*quantity$/i.test(k.trim()))
+              || keys.find(k => /lineitem.*quantity/i.test(k))
+              || keys.find(k => /^cantidad/i.test(k.trim()));
+  const botellasPor = {};
+  if(qtyKey){
+    rows.forEach(r => {
+      const n = (r[nameKey]||'').trim();
+      if(!n) return;
+      const q = parseInt(String(r[qtyKey]||'').replace(/[^0-9-]/g,''),10) || 0;
+      if(q>0) botellasPor[n] = (botellasPor[n]||0) + q;
+    });
+  }
+
   const seen = {};
   pendingShopify = [];
   rows.forEach(r => {
@@ -2828,7 +2934,7 @@ function processShopifyRows(rows, sheetInfo){
     if(totalRaw && !seen[name]){
       const total = parseFloat(totalRaw.replace(/[^0-9.,-]/g,'').replace(/,/g,'')) || 0;
       seen[name] = true;
-      pendingShopify.push({ num: name, total: total.toFixed(2) });
+      pendingShopify.push({ num: name, total: total.toFixed(2), bottles: botellasPor[name]||0 });
     }
   });
 
@@ -2846,12 +2952,15 @@ function processShopifyRows(rows, sheetInfo){
     </tr>`;
   }).join('');
   const matchCount = pendingShopify.filter(r => findOrderAnywhere(r.num)).length;
+  const conBotellas = pendingShopify.filter(r=>r.bottles>0).length;
   const lbl = document.getElementById('shopify-preview-lbl');
   const sheetHtml = sheetSelectorHTML(sheetInfo, 'shopify-sheet-sel', 'onShopifySheetChange');
   if(matchCount === 0){
     lbl.innerHTML = `<span style="color:var(--err);font-weight:600">⚠️ 0 de ${pendingShopify.length} pedidos coinciden con el sistema.</span> Verificá que ya hayas importado el CSV de costos primero (eso crea los pedidos), o que los números de pedido coincidan.${sheetHtml}`;
   } else {
-    lbl.innerHTML = `${pendingShopify.length} pedidos en el archivo · ${matchCount} coinciden con pedidos del sistema${sheetHtml}`;
+    lbl.innerHTML = `${pendingShopify.length} pedidos en el archivo · ${matchCount} coinciden con pedidos del sistema`+
+      (conBotellas ? ` · <span style="color:var(--ok)">${conBotellas} traen la cantidad de botellas</span> (sirve para estimar el envío)` :
+       ` · <span style="color:var(--text2)">sin columna de cantidad: el envío se va a estimar con la mediana plana</span>`)+sheetHtml;
   }
   document.getElementById('shopify-preview').style.display = 'block';
 }
@@ -2864,6 +2973,7 @@ function applyShopifyCSV(){
     const hit = findOrderAnywhere(r.num);
     if(hit){
       hit.o.salePrice = r.total;
+      if(r.bottles>0) hit.o.bottles = String(r.bottles);
       if(hit.mk !== cur) enOtroMes++;
       updated++;
     } else {
