@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v39</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v40</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -650,6 +650,17 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
           <input type="number" id="cfg-prov" placeholder="automático" style="width:120px">
           <button class="btn sm" onclick="saveCfg('prov','cfg-prov')">OK</button>
         </div>
+        <div class="row" style="margin-top:6px">
+          <span class="lbl">Duties por envío (USD)</span>
+          <input type="number" id="cfg-duty" placeholder="automático" step="0.01" style="width:120px">
+          <button class="btn sm" onclick="saveCfg('duty','cfg-duty')">OK</button>
+        </div>
+        <p style="font-size:11px;color:var(--text2);margin-top:4px">
+          FedEx cobra un cargo fijo por envío, pero una parte de los envíos además paga
+          <strong>arancel aduanero real</strong>, que puede ser varias veces ese cargo.
+          Vacío = promedio de tus envíos ya facturados, que incluye esa cola.
+          <span id="cfg-duty-auto"></span>
+        </p>
         <p style="font-size:11px;color:var(--text2);margin-top:6px">
           Lo que se descuenta por cada pedido ya cobrado al que todavía no le llegó la factura de FedEx.
           <strong>Dejalo vacío</strong> y la app usa la mediana de tus propios pedidos ya facturados.
@@ -1052,6 +1063,7 @@ function ld(){
   const fx=localStorage.getItem('aw_fx'); if(fx) document.getElementById('cfg-fx').value=fx;
   const dep=localStorage.getItem('aw_dep'); if(dep) document.getElementById('cfg-dep').value=dep;
   const prv=localStorage.getItem('aw_prov'); if(prv) document.getElementById('cfg-prov').value=prv;
+  const dty=localStorage.getItem('aw_duty'); if(dty) document.getElementById('cfg-duty').value=dty;
   const gc=localStorage.getItem('aw_gclient'); if(gc) document.getElementById('gclient-id').value=gc;
   // Auto-reconnect if token exists and not expired (tokens last ~1h)
   const token = getToken();
@@ -1185,8 +1197,18 @@ function provisionInfo(){
     });
   });
   const med = a => { if(!a.length) return 0; const b=a.slice().sort((x,y)=>x-y); return b[Math.floor((b.length-1)/2)]; };
+  // Duties: FedEx cobra un cargo fijo por envío (13,75 USD al momento de escribir esto)
+  // pero una parte de los envíos además paga arancel aduanero real, que puede ser varias
+  // veces ese monto. Por eso se usa el PROMEDIO y no la mediana: sobre julio 2026, 31 de
+  // 79 envíos facturados pagaron arancel y la mediana los ignoraba por completo, dejando
+  // la provisión corta. Se puede fijar un valor propio en USD desde Config.
+  const dutyManual = parseFloat(localStorage.getItem('aw_duty'));
+  const dutyPromARS = duts.length ? duts.reduce((a,b)=>a+b,0)/duts.length : 0;
+  const fxAhora = getFx();
   const manualRaw = parseFloat(localStorage.getItem('aw_prov'));
   return {
+    dutyManualUSD: (!isNaN(dutyManual) && dutyManual>0) ? dutyManual : null,
+    dutyARS: (!isNaN(dutyManual) && dutyManual>0 && fxAhora) ? dutyManual*fxAhora : dutyPromARS,
     manual: (!isNaN(manualRaw) && manualRaw>0) ? manualRaw : null,
     ship: med(ships), dut: med(duts),
     nShip: ships.length, nDut: duts.length,
@@ -1214,7 +1236,7 @@ function provisionPartes(o, p){
       partes.envio = (porCurva!=null) ? porCurva : p.ship;
     }
   }
-  if(faltaDut(o) && p.manual==null) partes.duties = p.dut;
+  if(faltaDut(o) && p.manual==null) partes.duties = p.dutyARS || p.dut;
   return partes;
 }
 
@@ -1396,6 +1418,14 @@ function renderProvision(m, prov, d){
   const fx=getFx();
   const ars=n=>'$'+Math.round(n).toLocaleString('es-AR');
 
+  const dutyAuto=document.getElementById('cfg-duty-auto');
+  if(dutyAuto){
+    dutyAuto.innerHTML = prov.dutyManualUSD!=null
+      ? `Ahora estás usando <strong>$${prov.dutyManualUSD.toFixed(2)} USD</strong> fijos.`
+      : (prov.nDut
+          ? `Hoy el automático es <strong>$${(fx?prov.dutyARS/fx:0).toFixed(2)} USD</strong> por envío, promedio de ${prov.nDut} ya facturados.`
+          : 'Todavía no hay envíos con duties facturados como para calcularlo.');
+  }
   const autoTxt=document.getElementById('cfg-prov-auto');
   if(autoTxt){
     autoTxt.innerHTML = prov.nShip
@@ -1433,6 +1463,14 @@ function renderProvision(m, prov, d){
             ? `mediana de tus ${prov.nShip} envíos ya facturados: ${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties`
             : 'todavía sin historial para estimar'));
   // La curva, para que se vea de dónde sale el número
+  const dutyTxt = (prov.manual==null && prov.dutyARS>0 && fx)
+    ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">
+         Los duties se estiman en <strong>$${(prov.dutyARS/fx).toFixed(2)} USD por envío</strong>`+
+      (prov.dutyManualUSD!=null
+        ? ' (valor fijado por vos en Config).'
+        : `, promedio de tus ${prov.nDut} envíos ya facturados. Incluye tanto el cargo fijo de FedEx como los envíos que además pagaron arancel aduanero real.`)+
+      `</div>`
+    : '';
   const ratioTxt = (prov.ratio>0 && provProdUSD>0)
     ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">
          El costo de productos se estima en <strong>${(prov.ratio*100).toFixed(0)}% de la venta</strong>,
@@ -1472,6 +1510,7 @@ function renderProvision(m, prov, d){
     + fila('Podés retirar ('+ownerPct+'%)','$'+(netProv*(ownerPct/100)).toFixed(2),'var(--ok)')
     + fila('Reserva a no tocar','$'+provUSD.toFixed(2),'var(--warn)','guardalo hasta que llegue la factura de FedEx')
     + ratioTxt
+    + dutyTxt
     + curvaTxt
     + (sinBotellas && prov.manual==null
         ? `<div style="font-size:11px;color:var(--warn);margin-top:6px"><i class="ti ti-alert-triangle"></i> ${sinBotellas} pedido${sinBotellas>1?'s':''} sin cantidad de botellas: se estimó con la mediana plana, que es menos precisa. Cargá las botellas en la tabla de Pedidos o importá las ventas de Shopify.</div>`
