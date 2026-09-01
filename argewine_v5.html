@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v31</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v32</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -375,10 +375,20 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         <details style="margin-bottom:8px">
           <summary class="setup-summary"><i class="ti ti-help-circle"></i> Cómo exportar el reporte desde FedEx</summary>
           <div style="border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-top:6px;font-size:12px;line-height:1.6">
+            <div style="background:var(--ok-bg);border-radius:var(--r);padding:9px 11px;margin-bottom:10px">
+              <div style="font-weight:600;color:var(--ok);margin-bottom:5px">Los dos ajustes que hay que poner</div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:baseline">
+                <span style="color:var(--text2)">Primer filtro:</span><strong>Factura</strong>
+                <span style="color:var(--text2)">Columnas:</span><strong>Conjunto de columnas definitivo</strong>
+                <span style="color:var(--text2)">Formato:</span><strong>Excel (.XLSX)</strong> — también sirve CSV
+              </div>
+              <div style="margin-top:6px;color:var(--text2)">
+                Ese conjunto de columnas ya es un preset de FedEx: <strong>no hace falta crear ni recordar
+                ninguna plantilla propia</strong>. Sale un archivo con una sola hoja llamada <strong>Data</strong>.
+              </div>
+            </div>
             <p style="margin-bottom:8px">
-              En <strong>FedEx Billing Online</strong> → sección de <strong>descargas / reportes</strong>, se exporta con una
-              <strong>plantilla</strong> que vos definís una sola vez. Lo único que importa es que la plantilla incluya
-              estas <strong>5 columnas</strong> (las 4 primeras son imprescindibles):
+              Con esos ajustes el archivo trae estas <strong>5 columnas</strong> (las 4 primeras son las que usa la app):
             </p>
             <div style="overflow-x:auto">
               <table style="width:100%;font-size:11px;border-collapse:collapse">
@@ -397,10 +407,17 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
               </table>
             </div>
             <div class="banner warn" style="margin-top:10px;font-size:11px">
-              <i class="ti ti-bulb" style="flex-shrink:0"></i>
+              <i class="ti ti-info-circle" style="flex-shrink:0"></i>
               <div>
-                <strong>Para no volver a buscar cuál plantilla era:</strong> nombrala <code>ARGEWINE-APP</code> y usá siempre esa.
-                Si te falta alguna columna, la app te va a decir exactamente cuál cuando subas el archivo.
+                <strong>La columna de referencia suele venir vacía, y está bien.</strong>
+                Desde los envíos de agosto 2026, FedEx no trae el número de pedido en
+                "Referencia del remitente 1" (en julio venía en ~37% de las filas, en agosto en ninguna).
+                No es un problema del export: cuando falta, la app cruza por <strong>número de guía aérea</strong>
+                contra el tracking que ya cargó el Excel de costos.
+                <br><br>
+                Por eso el orden importa: <strong>primero el Excel de costos</strong> (trae los trackings),
+                <strong>después el reporte de FedEx</strong>.
+                Si algo falta, al subir el archivo la app te dice exactamente qué columna es.
               </div>
             </div>
             <p style="margin-top:8px;color:var(--text2)">
