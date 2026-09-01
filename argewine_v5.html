@@ -68,7 +68,7 @@ table{width:100%;border-collapse:collapse;font-size:11px}
 th{text-align:left;font-weight:500;color:var(--text2);padding:5px 6px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg);position:sticky;top:0}
 td{padding:5px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
-.editable-cell{transition:background .12s}
+.editable-cell{transition:background .12s;cursor:pointer}
 .editable-cell:hover{background:var(--bg2)}
 .edit-pencil{font-size:10px;color:var(--text3);opacity:0;transition:opacity .12s;margin-left:2px}
 .editable-cell:hover .edit-pencil{opacity:1}
@@ -90,6 +90,11 @@ tr:last-child td{border-bottom:none}
 .awb-body{font-size:11px;color:var(--text2)}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:560px){.two-col{grid-template-columns:1fr}.metrics{grid-template-columns:1fr 1fr}}
+.setup-summary{cursor:pointer;font-size:12px;font-weight:500;color:var(--info);background:var(--info-bg);padding:8px 10px;border-radius:var(--r);list-style:none}
+.setup-summary::-webkit-details-marker{display:none}
+.setup-summary::before{content:'\25B8 ';display:inline-block;transition:transform .15s}
+details[open] .setup-summary::before{transform:rotate(90deg)}
+.setup-summary:focus-visible{outline:2px solid var(--info);outline-offset:2px}
 .exp-item{display:flex;align-items:center;gap:7px;padding:6px 9px;background:var(--bg2);border-radius:var(--r)}
 .exp-item .desc{flex:1;font-size:12px}
 .exp-item .amt{font-weight:500;font-size:12px;min-width:60px;text-align:right}
@@ -199,7 +204,7 @@ tr:last-child td{border-bottom:none}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v28</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v30</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -277,6 +282,12 @@ tr:last-child td{border-bottom:none}
               <tbody id="csv-preview-body"></tbody>
             </table>
           </div>
+          <div style="margin-top:8px;padding:7px 9px;background:var(--bg2);border-radius:var(--r);font-size:11px;line-height:1.45">
+            <div style="font-weight:600;margin-bottom:4px"><i class="ti ti-refresh"></i> ¿Qué hago con los pedidos que ya existen en este mes?</div>
+            <label style="display:block;margin:3px 0;cursor:pointer"><input type="radio" name="csv-mode" value="merge" checked> <strong>Sumar / actualizar</strong> — crea los que faltan y actualiza el costo de los existentes. Conserva venta, FedEx y notas.</label>
+            <label style="display:block;margin:3px 0;cursor:pointer"><input type="radio" name="csv-mode" value="replace"> <strong>Reemplazar por número de pedido</strong> — pisa por completo los pedidos que estén en el archivo (borra su venta, FedEx y notas). Los que no estén en el archivo no se tocan.</label>
+            <label style="display:block;margin:3px 0;cursor:pointer"><input type="radio" name="csv-mode" value="wipe"> <strong>Reemplazar el mes entero</strong> — borra todos los pedidos del mes y deja solo los del archivo. Los gastos del mes no se tocan.</label>
+          </div>
           <div class="btn-row" style="margin-top:8px">
             <button class="btn primary" id="csv-apply-btn" onclick="applyCostCSV()"><i class="ti ti-check"></i> Importar todos los pedidos</button>
             <button class="btn" onclick="document.getElementById('csv-preview').style.display='none';pendingCSV=[]">Cancelar</button>
@@ -322,12 +333,18 @@ tr:last-child td{border-bottom:none}
         </div>
       </div>
       <div class="card" style="padding:0">
-        <div style="padding:8px 12px;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border)">
-          <i class="ti ti-pencil" style="font-size:11px"></i> Tocá las columnas <strong>Envío</strong> o <strong>Duties</strong> para editar el monto en pesos si la IA leyó mal una factura.
+        <div style="padding:8px 12px;font-size:11px;color:var(--text2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="flex:1;min-width:230px"><i class="ti ti-pencil" style="font-size:11px"></i> Tocá cualquier celda para editarla. <strong>Venta</strong> y <strong>Depósito</strong> se cargan en USD; <strong>Producto</strong>, <strong>Envío</strong> y <strong>Duties</strong> en pesos.</span>
+          <button class="btn sm danger" onclick="resetCostValues()"><i class="ti ti-eraser"></i> Limpiar costos de productos (mes)</button>
+        </div>
+        <div id="orders-bulk" style="display:none;align-items:center;gap:8px;padding:7px 12px;background:var(--warn-bg);border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap">
+          <span id="orders-bulk-lbl" style="flex:1;min-width:150px;color:var(--warn);font-weight:600"></span>
+          <button class="btn sm" onclick="toggleAllOrders(false)">Deseleccionar</button>
+          <button class="btn sm danger" onclick="delSelectedOrders()"><i class="ti ti-trash"></i> Borrar seleccionados</button>
         </div>
         <div class="tbl-wrap">
           <table>
-            <thead><tr><th>Pedido</th><th>Tracking</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th style="width:30px;text-align:center"><input type="checkbox" id="orders-chk-all" onclick="toggleAllOrders(this.checked)" title="Seleccionar todos"></th><th>Pedido</th><th>Tracking</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
             <tbody id="orders-tb"></tbody>
           </table>
         </div>
@@ -336,6 +353,12 @@ tr:last-child td{border-bottom:none}
 
     <!-- FEDEX -->
     <div class="panel" id="panel-fedex">
+      <div class="card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span style="flex:1;min-width:240px;font-size:12px;color:var(--text2)">
+          ¿Envíos o duties mal cargados? Limpiá solo esos campos de <strong id="fedex-reset-month"></strong> y volvé a subir las facturas. Productos y ventas no se tocan.
+        </span>
+        <button class="btn danger" onclick="resetFedexValues()"><i class="ti ti-eraser"></i> Limpiar envío + duties (mes actual)</button>
+      </div>
       <div class="banner info">
         <i class="ti ti-info-circle" style="flex-shrink:0;margin-top:1px"></i>
         <div>
@@ -502,8 +525,10 @@ tr:last-child td{border-bottom:none}
           </div>
           <div id="drive-info" style="font-size:12px;color:var(--text2)"></div>
           <div id="drive-diag" style="font-size:11px;color:var(--err);margin-top:6px;font-family:monospace;word-break:break-word"></div>
-          <!-- INSTRUCCIONES SETUP -->
-          <div class="banner info" style="margin-top:10px">
+          <!-- INSTRUCCIONES SETUP (colapsadas) -->
+          <details style="margin-top:10px">
+            <summary class="setup-summary"><i class="ti ti-info-circle"></i> Cómo conectar Drive la primera vez</summary>
+          <div class="banner info" style="margin-top:6px">
             <i class="ti ti-info-circle" style="flex-shrink:0"></i>
             <div>
               <strong>Setup inicial (una sola vez):</strong><br>
@@ -517,6 +542,7 @@ tr:last-child td{border-bottom:none}
               4. Los datos se sincronizan automáticamente en cada guardado
             </div>
           </div>
+          </details>
           <div class="row" style="margin-top:10px">
             <span class="lbl">Google Client ID</span>
             <input type="text" id="gclient-id" placeholder="000000000-xxxxxxxx.apps.googleusercontent.com" style="width:290px;font-size:11px;font-family:monospace">
@@ -572,24 +598,12 @@ tr:last-child td{border-bottom:none}
         <div class="btn-row" style="margin-top:10px">
           <button class="btn" onclick="if(confirm('Importar REEMPLAZA todos tus datos actuales por los del archivo. ¿Seguro? (Para juntar datos sin perder nada, usá Combinar)'))document.getElementById('imp-f').click()"><i class="ti ti-upload"></i> Importar (reemplaza todo)</button>
           <input type="file" id="imp-f" accept=".json" style="display:none" onchange="importJSON(this.files[0]);this.value=''">
+          <button class="btn danger" onclick="clearMonthOrders()"><i class="ti ti-trash"></i> Borrar pedidos del mes</button>
           <button class="btn danger" onclick="clearMonth()"><i class="ti ti-trash"></i> Borrar mes actual</button>
         </div>
-        <div style="border-top:1px solid var(--border);margin-top:10px;padding-top:10px">
-          <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
-            Si solo el costo de productos quedó mal, limpialo y reimportá el CSV de costos. Envío y duties no se tocan.
-          </p>
-          <div class="btn-row">
-            <button class="btn danger" onclick="resetCostValues()"><i class="ti ti-eraser"></i> Limpiar costos de productos (mes actual)</button>
-            <button class="btn danger" onclick="resetAllCostValues()"><i class="ti ti-eraser"></i> Limpiar costos de productos (todos los meses)</button>
-          </div>
-          <div style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px">
-            <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Para corregir envíos/duties mal cargados, limpiá solo esos campos y volvé a subir las facturas con modo <strong>Reemplazar</strong>.</p>
-            <div class="btn-row">
-              <button class="btn danger" onclick="resetFedexValues()"><i class="ti ti-eraser"></i> Limpiar envío + duties (mes actual)</button>
-              <button class="btn danger" onclick="resetAllFedexValues()"><i class="ti ti-eraser"></i> Limpiar envío + duties (todos los meses)</button>
-            </div>
-          </div>
-        </div>
+        <p style="font-size:11px;color:var(--text2);margin-top:10px">
+          Para limpiar costos de productos usá el botón de la pestaña <strong>Pedidos</strong>; para envío y duties, el de la pestaña <strong>FedEx</strong>.
+        </p>
       </div>
     </div>
 
@@ -630,6 +644,8 @@ let driveFileId = null;
 let saveTimer = null;
 let indTimer = null;
 let driveSyncReady = false; // evita subir a Drive antes de haber cargado la última versión
+let localDirty = false;     // hay cambios locales (alta/edición/borrado/import) que Drive todavía no confirmó
+let pendingUpload = false;  // hubo un guardado mientras la carga inicial de Drive seguía en curso
 const DATA_FILENAME = 'argewine_data.json';
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
@@ -766,6 +782,9 @@ async function findOrCreateDataFile(){
     if(info) info.textContent = driveFileId ? 'Archivo: '+DATA_FILENAME+' (ID: '+driveFileId.substring(0,14)+'...)' : '';
   }catch(e){ console.error('findOrCreate error:', e); }
   driveSyncReady = true;
+  // Si mientras cargabamos hubo cambios locales (borrado, import...), subirlos ahora
+  // en vez de descartarlos silenciosamente.
+  if(pendingUpload || localDirty){ pendingUpload = false; saveToDrive(); }
 }
 
 async function loadFromDrive(){
@@ -780,10 +799,18 @@ async function loadFromDrive(){
     const localTime = S._lastModified || 0;
     const localHasData = S.months && Object.keys(S.months).length > 0;
 
+    // Si el usuario ya tocó algo en esta sesión (borró una línea, importó un CSV...), esos
+    // cambios mandan SIEMPRE. Antes, la respuesta tardía de Drive reemplazaba el objeto `S`
+    // entero y el borrado/import desaparecía: ese era el bug de "no se borra con nada".
+    if(localDirty && localHasData){
+      await saveToDrive();
+      return 'local';
+    }
+
     if(!localHasData || driveTime >= localTime){
       // Drive es más nuevo (o local está vacío): usar Drive
       S = data;
-      sv(); // sincronizar copia local
+      sv(true); // sincronizar copia local conservando el timestamp de Drive
       return 'drive';
     } else {
       // Local es más nuevo que Drive (ej: se trabajó sin conexión): subir local a Drive
@@ -798,7 +825,8 @@ async function saveToDrive(create=false){
   if(!token){ setSaveInd('saved','Guardado localmente'); return; }
   if(!driveSyncReady && !create){
     // Todavía no terminó la carga inicial desde Drive — guardar solo local para no pisar la nube.
-    // findOrCreateDataFile subirá los datos locales si son más nuevos.
+    // Queda encolado: findOrCreateDataFile lo sube apenas termina.
+    pendingUpload = true;
     setSaveInd('saved','Guardado localmente (sincronizando con Drive...)');
     return;
   }
@@ -839,6 +867,7 @@ async function saveToDrive(create=false){
     const okDiag=document.getElementById('drive-diag'); if(okDiag) okDiag.textContent='';
     // Success is based on HTTP status, not on json.id (PATCH doesn't always return it)
     try{ const json = await r.json(); if(json && json.id) driveFileId = json.id; }catch(e){}
+    localDirty = false; pendingUpload = false;
     setSaveInd('saved','Guardado en Drive ✓');
   }catch(e){
     console.error('Drive save error:', e);
@@ -847,6 +876,7 @@ async function saveToDrive(create=false){
 }
 
 function schedSave(){
+  localDirty = true; // hay cambios locales sin confirmar en Drive: nada de la nube puede pisarlos
   setSaveInd('saving', 'Guardando...');
   sv(); // guarda localmente de inmediato
   clearTimeout(saveTimer);
@@ -940,7 +970,9 @@ function migrateData(){
   S._migratedV11 = true;
   sv();
 }
-function sv(){ S._lastModified = Date.now(); try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
+// keepStamp=true: persiste sin tocar _lastModified. Se usa al adoptar la copia de Drive,
+// para no falsear que lo local es más nuevo que la nube.
+function sv(keepStamp){ if(!keepStamp) S._lastModified = Date.now(); try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
 function ld(){
   try{ const d=localStorage.getItem(LS); if(d) S=JSON.parse(d); }catch(e){}
   const k=localStorage.getItem('aw_ckey'); if(k) document.getElementById('claude-key').value=k;
@@ -983,7 +1015,10 @@ function showPanel(name,el){
   renderAll();
 }
 function changeMonth(){ cur=document.getElementById('monthSel').value; renderAll(); }
-function renderAll(){ renderDashboard(); renderOrders(); renderExpenses(); renderFxHist(); }
+function renderAll(){
+  renderDashboard(); renderOrders(); renderExpenses(); renderFxHist();
+  const fm=document.getElementById('fedex-reset-month'); if(fm) fm.textContent=cur;
+}
 
 // ===== CALCS =====
 function calcProfit(o){
@@ -1002,6 +1037,21 @@ function orderStatus(o){
 }
 function normalizeOrderNum(s){ return (s||'').replace(/[^0-9\-]/g,'').trim(); }
 function normalizeTrack(s){ return (s||'').replace(/\s/g,'').trim(); }
+
+// Clave canónica para cruzar pedidos entre los importadores y el estado guardado.
+// Tolera números (Excel devuelve numéricos), null/undefined, "#1234", espacios y mayúsculas.
+// Antes se comparaba con `o.num.replace('#','')` directo: si algún pedido tenía `num` numérico
+// o faltante, eso tiraba TypeError y cortaba el forEach del import a la mitad, sin guardar ni avisar.
+function orderKey(v){
+  const t = (v==null ? '' : String(v)).trim();
+  const digits = t.replace(/[^0-9\-]/g,'');
+  return digits || t.toLowerCase();
+}
+function findOrderByNum(orders, num){
+  const k = orderKey(num);
+  if(!k) return undefined;
+  return (orders||[]).find(o => orderKey(o.num) === k);
+}
 
 // ===== DASHBOARD =====
 function renderDashboard(){
@@ -1061,7 +1111,8 @@ function renderOrders(){
   const m=gm();
   const tb=document.getElementById('orders-tb');
   if(!m.orders.length){
-    tb.innerHTML='<tr><td colspan="10" style="text-align:center;color:var(--text2);padding:18px">Sin pedidos. Agregá uno arriba.</td></tr>'; return;
+    tb.innerHTML='<tr><td colspan="11" style="text-align:center;color:var(--text2);padding:18px">Sin pedidos. Agregá uno arriba.</td></tr>';
+    updateBulkBar(); return;
   }
   tb.innerHTML=m.orders.map((o,i)=>{
     const pr=calcProfit(o);
@@ -1073,19 +1124,131 @@ function renderOrders(){
     const hasShip = o.shippingARS!==''&&o.shippingARS!=null;
     const hasDut = o.dutiesARS!==''&&o.dutiesARS!=null;
     const hasProd = o.productCostARS!==''&&o.productCostARS!=null;
+    const numRaw=String(o.num==null?'':o.num);
+    const attrNum=numRaw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const delNum=numRaw.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const arsTip=v=>'$'+(parseFloat(v)||0).toLocaleString('es-AR')+' ARS — clic para editar';
+    const ed=f=>`onclick="editOrderField(${i},'${delNum}','${f}')"`;
     return`<tr>
-      <td><strong>${o.num}</strong>${o.notes?`<div style="font-size:10px;color:var(--text2)">${o.notes}</div>`:''}</td>
-      <td style="font-size:10px;font-family:monospace;color:var(--text2)">${trk}</td>
-      <td>$${u.sale.toFixed(2)}</td>
-      <td style="${!hasProd?'color:var(--text3)':''}" title="${hasProd?'$'+parseFloat(o.productCostARS).toLocaleString('es-AR')+' ARS':''}">$${u.product.toFixed(2)}</td>
-      <td class="editable-cell" onclick="editFedexValue(${i},'shipping')" title="${hasShip?'$'+parseFloat(o.shippingARS).toLocaleString('es-AR')+' ARS — clic para editar':'Clic para editar'}" style="${!hasShip?'color:var(--text3)':''};cursor:pointer">$${u.shipping.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td class="editable-cell" onclick="editFedexValue(${i},'duties')" title="${hasDut?'$'+parseFloat(o.dutiesARS).toLocaleString('es-AR')+' ARS — clic para editar':'Clic para editar'}" style="${!hasDut?'color:var(--text3)':''};cursor:pointer">$${u.duties.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td>$${u.deposit.toFixed(2)}</td>
+      <td style="text-align:center"><input type="checkbox" class="ord-chk" data-num="${attrNum}" onchange="updateBulkBar()" title="Seleccionar para borrado múltiple"></td>
+      <td class="editable-cell" ${ed('num')} title="Clic para editar el número de pedido"><strong>${o.num}</strong>${o.notes?`<div style="font-size:10px;color:var(--text2)">${o.notes}</div>`:''}</td>
+      <td class="editable-cell" ${ed('tracking')} title="Clic para editar el tracking" style="font-size:10px;font-family:monospace;color:var(--text2)">${trk}</td>
+      <td class="editable-cell" ${ed('salePrice')} title="Venta en USD — clic para editar">$${u.sale.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
+      <td class="editable-cell" ${ed('productCostARS')} title="${hasProd?arsTip(o.productCostARS):'Clic para editar'}" style="${!hasProd?'color:var(--text3)':''}">$${u.product.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
+      <td class="editable-cell" ${ed('shippingARS')} title="${hasShip?arsTip(o.shippingARS):'Clic para editar'}" style="${!hasShip?'color:var(--text3)':''}">$${u.shipping.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
+      <td class="editable-cell" ${ed('dutiesARS')} title="${hasDut?arsTip(o.dutiesARS):'Clic para editar'}" style="${!hasDut?'color:var(--text3)':''}">$${u.duties.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
+      <td class="editable-cell" ${ed('handling')} title="Depósito en USD — clic para editar">$${u.deposit.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
       <td style="font-weight:600;color:${pr>=0?'var(--ok)':'var(--err)'}">$${pr.toFixed(2)}</td>
       <td><span class="dot ${dc}"></span>${sl}</td>
-      <td><button class="btn sm danger" onclick="delOrder(${i})"><i class="ti ti-trash"></i></button></td>
+      <td><button class="btn sm danger" onclick="delOrder(${i},'${delNum}')" title="Borrar este pedido"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   }).join('');
+  updateBulkBar();
+}
+
+// ===== SELECCIÓN MÚLTIPLE DE PEDIDOS =====
+// La selección es transitoria: se limpia en cada re-render, así nunca borra
+// un pedido distinto del que quedó tildado en pantalla.
+function selectedOrderNums(){
+  return [...document.querySelectorAll('.ord-chk:checked')].map(c=>c.getAttribute('data-num'));
+}
+function toggleAllOrders(on){
+  document.querySelectorAll('.ord-chk').forEach(c=>{ c.checked=!!on; });
+  updateBulkBar();
+}
+function updateBulkBar(){
+  const bar=document.getElementById('orders-bulk');
+  if(!bar) return;
+  const total=document.querySelectorAll('.ord-chk').length;
+  const n=selectedOrderNums().length;
+  bar.style.display = n ? 'flex' : 'none';
+  const lbl=document.getElementById('orders-bulk-lbl');
+  if(lbl) lbl.textContent = n===1 ? '1 pedido seleccionado' : n+' pedidos seleccionados';
+  const all=document.getElementById('orders-chk-all');
+  if(all){ all.checked = n>0 && n===total; all.indeterminate = n>0 && n<total; }
+}
+function delSelectedOrders(){
+  const nums=selectedOrderNums();
+  if(!nums.length) return;
+  const lista=nums.slice(0,12).join(', ')+(nums.length>12?' y '+(nums.length-12)+' más':'');
+  if(!confirm('¿Eliminás '+nums.length+' pedido'+(nums.length>1?'s':'')+' de '+cur+'?\n\n'+lista)) return;
+  const keys=new Set(nums.map(orderKey));
+  const m=gm();
+  const antes=m.orders.length;
+  m.orders=m.orders.filter(o=>!keys.has(orderKey(o.num)));
+  schedSave(); renderOrders(); renderDashboard();
+  alert('✓ '+(antes-m.orders.length)+' pedidos eliminados.');
+}
+
+// ===== EDICIÓN DE CUALQUIER CAMPO DEL PEDIDO =====
+// Cada campo se edita EN SU MONEDA NATIVA, que es como se guarda:
+//   salePrice y handling -> USD  |  productCostARS, shippingARS, dutiesARS -> ARS
+// La conversión a USD de la tabla la sigue haciendo orderUSD() con el TC configurado,
+// así que editar acá nunca rompe el modelo de monedas.
+const ORDER_FIELDS = {
+  num:            { label:'número de pedido',   kind:'text' },
+  tracking:       { label:'tracking',           kind:'text' },
+  salePrice:      { label:'precio de venta',    kind:'usd'  },
+  productCostARS: { label:'costo de productos', kind:'ars'  },
+  shippingARS:    { label:'costo de envío',     kind:'ars'  },
+  dutiesARS:      { label:'duties',             kind:'ars'  },
+  handling:       { label:'depósito',           kind:'usd'  }
+};
+
+function editOrderField(i, num, field){
+  const m=gm();
+  let idx=i;
+  if(num!==undefined && (!m.orders[idx] || orderKey(m.orders[idx].num)!==orderKey(num))){
+    idx=m.orders.findIndex(o=>orderKey(o.num)===orderKey(num));
+  }
+  const o=m.orders[idx];
+  if(!o){ alert('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
+  const spec=ORDER_FIELDS[field];
+  if(!spec) return;
+  const actual = o[field]==null ? '' : String(o[field]);
+
+  if(spec.kind==='text'){
+    const val=prompt('Editar '+spec.label+' del pedido '+o.num+':', actual);
+    if(val===null) return;
+    const limpio=val.trim();
+    if(field==='num'){
+      if(!limpio){ alert('El número de pedido no puede quedar vacío.'); return; }
+      const dup=m.orders.find(x=>x!==o && orderKey(x.num)===orderKey(limpio));
+      if(dup){ alert('Ya existe el pedido '+dup.num+' en este mes. Usá otro número.'); return; }
+    }
+    o[field]=limpio;
+
+  } else if(spec.kind==='usd'){
+    const msg='Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en USD.\n'+
+      (actual!=='' ? 'Valor actual: $'+(parseFloat(actual)||0).toFixed(2)+' USD' : 'Sin valor cargado.')+
+      '\n\n(Dejalo vacío para borrar el valor)';
+    const val=prompt(msg, actual);
+    if(val===null) return;
+    if(val.trim()===''){ o[field]=''; }
+    else{
+      const n=parseFlexibleNumber(val.trim());
+      if(n===null||isNaN(n)||n<0){ alert('Monto inválido. Ingresá un número en USD.'); return; }
+      o[field]=n.toFixed(2);
+    }
+
+  } else { // ars
+    const fx=getFx();
+    const actARS=parseFloat(actual)||0;
+    const msg='Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en PESOS (ARS).\n'+
+      (actARS>0
+        ? 'Valor actual: $'+actARS.toLocaleString('es-AR')+' ARS'+(fx>0?' (= $'+(actARS/fx).toFixed(2)+' USD al cambio $'+fx+')':' — falta configurar el tipo de cambio')
+        : 'Sin valor cargado.')+
+      '\n\n(Dejalo vacío para borrar el valor)';
+    const val=prompt(msg, actARS>0?actARS:'');
+    if(val===null) return;
+    if(val.trim()===''){ o[field]=''; }
+    else{
+      const n=parseFlexibleNumber(val.trim());
+      if(n===null||isNaN(n)||n<0){ alert('Monto inválido. Ingresá un número en pesos.'); return; }
+      o[field]=n.toFixed(2);
+    }
+  }
+  schedSave(); renderOrders(); renderDashboard();
 }
 
 function addOrder(){
@@ -1109,37 +1272,22 @@ function clearOrderForm(){
   ['o-num','o-trk','o-sale','o-cost','o-ship','o-duty','o-notes'].forEach(id=>document.getElementById(id).value='');
   const dep=localStorage.getItem('aw_dep'); if(dep) document.getElementById('o-dep').value=dep;
 }
-function delOrder(i){ if(!confirm('¿Eliminás este pedido?'))return; gm().orders.splice(i,1); schedSave(); renderOrders(); renderDashboard(); }
-
-function editFedexValue(i, field){
-  const m=gm();
-  const o=m.orders[i];
-  if(!o) return;
-  const fx=getFx();
-  const label=field==='shipping'?'envío':'duties';
-  const arsField=field==='shipping'?'shippingARS':'dutiesARS';
-  const currentARS=parseFloat(o[arsField])||0;
-  const currentUSD=fx>0?(currentARS/fx):0;
-
-  const msg=`Editar costo de ${label} para el pedido ${o.num}\n\n`+
-    `Ingresá el monto en PESOS (ARS) como aparece en la factura.\n`+
-    (currentARS>0?`Valor actual: $${currentARS.toLocaleString('es-AR')} ARS (= $${currentUSD.toFixed(2)} USD al cambio $${fx})`:'Sin valor cargado.');
-
-  const input=prompt(msg, currentARS>0?currentARS:'');
-  if(input===null) return; // cancelado
-
-  const cleaned=input.trim();
-  if(cleaned===''){
-    // vaciar el campo
-    o[arsField]='';
-    schedSave(); renderOrders(); renderDashboard();
-    return;
+// Borra por identidad: si el índice ya no apunta al pedido que se ve en pantalla
+// (re-render intermedio, sync de Drive), cae al match por número en vez de borrar otra fila.
+function delOrder(i, num){
+  const m = gm();
+  let idx = i;
+  if(num !== undefined && (!m.orders[idx] || orderKey(m.orders[idx].num) !== orderKey(num))){
+    idx = m.orders.findIndex(o => orderKey(o.num) === orderKey(num));
   }
-  const newARS=parseFlexibleNumber(cleaned);
-  if(newARS===null||isNaN(newARS)||newARS<0){ alert('Monto inválido. Ingresá un número en pesos.'); return; }
-  o[arsField]=newARS.toFixed(2);
+  if(idx < 0 || !m.orders[idx]){ alert('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
+  if(!confirm('¿Eliminás el pedido '+m.orders[idx].num+'?')) return;
+  m.orders.splice(idx,1);
   schedSave(); renderOrders(); renderDashboard();
 }
+
+// Alias histórico: la edición de envío/duties ahora pasa por editOrderField.
+function editFedexValue(i, field){ editOrderField(i, undefined, field==='shipping'?'shippingARS':'dutiesARS'); }
 
 // ===== GASTOS =====
 function renderExpenses(){
@@ -1150,9 +1298,27 @@ function renderExpenses(){
     <div class="exp-item">
       <span class="desc">${e.desc}</span>
       <span class="amt">$${parseFloat(e.amount).toFixed(2)}</span>
-      <button class="btn sm danger" onclick="delExp(${i})"><i class="ti ti-x"></i></button>
+      <button class="btn sm" onclick="editExpense(${i})" title="Editar este gasto"><i class="ti ti-pencil"></i></button>
+      <button class="btn sm danger" onclick="delExp(${i})" title="Borrar este gasto"><i class="ti ti-x"></i></button>
     </div>`).join(''):'<span style="color:var(--text2);font-size:12px">Sin gastos.</span>';
   document.getElementById('exp-total').textContent='$'+total.toFixed(2);
+}
+// Editar un gasto ya cargado (descripción y monto). Los gastos se guardan en USD.
+function editExpense(i){
+  const m=gm();
+  const e=m.expenses[i];
+  if(!e){ alert('Ese gasto ya no existe.'); renderExpenses(); return; }
+  const desc=prompt('Descripción del gasto:', e.desc==null?'':String(e.desc));
+  if(desc===null) return;
+  if(!desc.trim()){ alert('La descripción no puede quedar vacía.'); return; }
+  const cur=e.amount==null?'':String(e.amount);
+  const amt=prompt('Monto del gasto en USD:\n\nValor actual: $'+(parseFloat(cur)||0).toFixed(2), cur);
+  if(amt===null) return;
+  const n=parseFlexibleNumber(amt.trim());
+  if(n===null||isNaN(n)||n<0){ alert('Monto inválido. Ingresá un número en USD.'); return; }
+  e.desc=desc.trim();
+  e.amount=n.toFixed(2);
+  schedSave(); renderExpenses(); renderDashboard();
 }
 function addExpense(){
   const cat=document.getElementById('exp-cat').value;
@@ -1941,6 +2107,13 @@ function mergeJSON(file){
   };
   r.readAsText(file);
 }
+function clearMonthOrders(){
+  const m = gm();
+  if(!m.orders.length){ alert('Este mes no tiene pedidos.'); return; }
+  if(!confirm('¿Borrás los '+m.orders.length+' pedidos de '+cur+'?\n\nLos gastos del mes NO se tocan. Podés volver a crearlos reimportando el CSV de costos.')) return;
+  m.orders = [];
+  schedSave(); renderAll();
+}
 function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; delete S.months[cur]; schedSave(); renderAll(); }
 
 function resetCostValues(){
@@ -1951,14 +2124,6 @@ function resetCostValues(){
   alert('✓ Costo de productos limpiado. Envío y duties se mantuvieron. Reimportá el CSV de costos.');
 }
 
-function resetAllCostValues(){
-  if(!confirm('¿Limpiar SOLO el costo de productos de TODOS los meses?\nEnvío, duties y ventas se mantienen intactos.'))return;
-  Object.values(S.months||{}).forEach(month=>{
-    (month.orders||[]).forEach(o=>{ o.productCostARS=''; });
-  });
-  schedSave(); renderAll();
-  alert('✓ Costo de productos limpiado en todos los meses. Envío y duties se mantuvieron. Reimportá los CSV de costos.');
-}
 
 function resetFedexValues(){
   if(!confirm('¿Limpiar SOLO envío y duties del mes '+cur+'?\nProductos, ventas y todo lo demás se mantiene.'))return;
@@ -1968,14 +2133,6 @@ function resetFedexValues(){
   alert('✓ Envío y duties limpiados en '+cur+'. Volvé a subir las facturas de FedEx con modo Reemplazar.');
 }
 
-function resetAllFedexValues(){
-  if(!confirm('¿Limpiar envío y duties de TODOS los meses?\nProductos, ventas y todo lo demás se mantiene.'))return;
-  Object.values(S.months||{}).forEach(month=>{
-    (month.orders||[]).forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
-  });
-  schedSave(); renderAll();
-  alert('✓ Envío y duties limpiados en todos los meses. Volvé a subir las facturas de FedEx con modo Reemplazar.');
-}
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
 
 // ===== CSV IMPORT DE COSTOS =====
@@ -2211,38 +2368,70 @@ function parseCostARS(raw){
   return parseFloat(s) || 0;
 }
 
+// 'merge'   = comportamiento histórico: crea los que faltan, actualiza el costo de los existentes.
+// 'replace' = pisa el registro COMPLETO de cada pedido que venga en el archivo (por número).
+// 'wipe'    = reemplaza el mes entero: se borran todos los pedidos y quedan solo los del archivo.
+function costImportMode(){
+  const el = document.querySelector('input[name="csv-mode"]:checked');
+  return el ? el.value : 'merge';
+}
+
 function applyCostCSV(){
   if(!pendingCSV.length) return;
   const m = gm();
   const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
-  let added = 0, updated = 0, skipped = 0;
+  const mode = costImportMode();
+
+  if(mode === 'wipe'){
+    if(!confirm('Vas a REEMPLAZAR el mes completo.\n\nSe borran los '+m.orders.length+' pedidos actuales de '+cur+' (venta, FedEx y notas incluidos) y quedan solo los '+pendingCSV.length+' del archivo.\n\n¿Confirmás?')) return;
+    m.orders = [];
+  } else if(mode === 'replace'){
+    if(!confirm('Vas a PISAR los pedidos por número.\n\nDe los '+pendingCSV.length+' pedidos del archivo se borran venta, envío, duties y notas, y se recargan desde cero.\nLos pedidos que NO estén en el archivo quedan intactos.\n\n¿Confirmás?')) return;
+  }
+
+  let added = 0, replaced = 0, updated = 0;
 
   pendingCSV.forEach(r => {
-    const existing = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
-    if(existing){
-      // ALWAYS overwrite product cost (in ARS) on reimport
-      existing.productCostARS = r.productCostARS;
-      updated++;
-      if(!existing.tracking && r.tracking) existing.tracking = r.tracking;
-    } else {
-      m.orders.push({
-        num: r.num,
-        tracking: r.tracking,
-        salePrice: '',
-        productCostARS: r.productCostARS,
-        shippingARS: '',
-        dutiesARS: '',
-        handling: dep.toFixed(2),
-        notes: ''
-      });
+    const fresh = {
+      num: r.num,
+      tracking: r.tracking || '',
+      salePrice: '',
+      productCostARS: r.productCostARS,
+      shippingARS: '',
+      dutiesARS: '',
+      handling: dep.toFixed(2),
+      notes: ''
+    };
+    const existing = findOrderByNum(m.orders, r.num);
+
+    if(!existing){
+      m.orders.push(fresh);
       added++;
+      return;
+    }
+
+    if(mode === 'replace'){
+      m.orders[m.orders.indexOf(existing)] = fresh; // pisa el registro entero, en su misma posición
+      replaced++;
+    } else {
+      existing.productCostARS = r.productCostARS;
+      if(!existing.tracking && r.tracking) existing.tracking = r.tracking;
+      updated++;
     }
   });
 
+  const total = pendingCSV.length;
   pendingCSV = [];
   document.getElementById('csv-preview').style.display = 'none';
   schedSave(); renderOrders(); renderDashboard();
-  alert(`✓ Importación completa:\n• ${added} pedidos nuevos creados\n• ${updated} pedidos con costo actualizado (se pisó el valor anterior)`);
+
+  const modeLbl = mode==='wipe' ? 'Reemplazo del mes entero'
+                : mode==='replace' ? 'Reemplazo por número de pedido'
+                : 'Sumar / actualizar';
+  const lines = ['✓ '+modeLbl+' — '+total+' filas del archivo:', '• '+added+' pedidos nuevos creados'];
+  if(mode === 'replace') lines.push('• '+replaced+' pedidos pisados por completo');
+  else if(mode === 'merge') lines.push('• '+updated+' pedidos con costo actualizado (se pisó el valor anterior)');
+  alert(lines.join('\n'));
 }
 
 // ===== SHOPIFY SALES CSV IMPORT =====
@@ -2299,7 +2488,7 @@ function processShopifyRows(rows, sheetInfo){
   const m = gm();
   const tbody = document.getElementById('shopify-preview-body');
   tbody.innerHTML = pendingShopify.map(r => {
-    const inSystem = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+    const inSystem = findOrderByNum(m.orders, r.num);
     const neg = parseFloat(r.total) < 0;
     return `<tr>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${r.num}</td>
@@ -2307,7 +2496,7 @@ function processShopifyRows(rows, sheetInfo){
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${inSystem?'<span class="badge ok" style="font-size:10px">sí</span>':'<span class="badge err" style="font-size:10px">no existe</span>'}</td>
     </tr>`;
   }).join('');
-  const matchCount = pendingShopify.filter(r => m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim())).length;
+  const matchCount = pendingShopify.filter(r => findOrderByNum(m.orders, r.num)).length;
   const lbl = document.getElementById('shopify-preview-lbl');
   const sheetHtml = sheetSelectorHTML(sheetInfo, 'shopify-sheet-sel', 'onShopifySheetChange');
   if(matchCount === 0){
@@ -2323,7 +2512,7 @@ function applyShopifyCSV(){
   const m = gm();
   let updated = 0, notFound = 0;
   pendingShopify.forEach(r => {
-    const order = m.orders.find(o => o.num.replace('#','').trim() === r.num.replace('#','').trim());
+    const order = findOrderByNum(m.orders, r.num);
     if(order){
       order.salePrice = r.total;
       updated++;
