@@ -204,7 +204,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v34</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v35</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -234,7 +234,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         <div class="metric"><div class="metric-lbl">Gan. bruta</div><div class="metric-val" id="m-gross">$0</div></div>
         <div class="metric"><div class="metric-lbl">Gastos mes</div><div class="metric-val" id="m-exp">$0</div></div>
         <div class="metric"><div class="metric-lbl">Gan. neta</div><div class="metric-val" id="m-net">$0</div></div>
-        <div class="metric"><div class="metric-lbl">Para vos</div><div class="metric-val pos" id="m-owner">$0</div></div>
+        <div class="metric"><div class="metric-lbl" id="m-owner-lbl">Para vos</div><div class="metric-val pos" id="m-owner">$0</div></div>
       </div>
       <div class="two-col">
         <div class="card">
@@ -249,6 +249,10 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
             <span>Total</span><span id="d-exp-total">$0.00</span>
           </div>
         </div>
+      </div>
+      <div class="card" id="d-prov-card">
+        <div class="card-title"><i class="ti ti-hourglass-high"></i> Envíos cobrados pero todavía sin facturar</div>
+        <div id="d-prov" style="font-size:12px"></div>
       </div>
       <div class="card">
         <div class="card-title"><i class="ti ti-alert-triangle"></i> Pedidos incompletos</div>
@@ -637,6 +641,20 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
           <div class="card-title"><i class="ti ti-building-warehouse"></i> Depósito por pedido</div>
           <div class="row"><span class="lbl">USD/pedido</span><input type="number" id="cfg-dep" placeholder="3.25" step="0.01" style="width:90px"><button class="btn sm" onclick="saveCfg('dep','cfg-dep')">OK</button></div>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><i class="ti ti-hourglass-high"></i> Provisión por envío pendiente</div>
+        <div class="row">
+          <span class="lbl">ARS por pedido</span>
+          <input type="number" id="cfg-prov" placeholder="automático" style="width:120px">
+          <button class="btn sm" onclick="saveCfg('prov','cfg-prov')">OK</button>
+        </div>
+        <p style="font-size:11px;color:var(--text2);margin-top:6px">
+          Lo que se descuenta por cada pedido ya cobrado al que todavía no le llegó la factura de FedEx.
+          <strong>Dejalo vacío</strong> y la app usa la mediana de tus propios pedidos ya facturados.
+          <span id="cfg-prov-auto"></span>
+        </p>
       </div>
 
       <div class="card">
@@ -1033,6 +1051,7 @@ function ld(){
   const mdl=localStorage.getItem('aw_model'); if(mdl){ const sel=document.getElementById('claude-model'); if(sel) sel.value=mdl; }
   const fx=localStorage.getItem('aw_fx'); if(fx) document.getElementById('cfg-fx').value=fx;
   const dep=localStorage.getItem('aw_dep'); if(dep) document.getElementById('cfg-dep').value=dep;
+  const prv=localStorage.getItem('aw_prov'); if(prv) document.getElementById('cfg-prov').value=prv;
   const gc=localStorage.getItem('aw_gclient'); if(gc) document.getElementById('gclient-id').value=gc;
   // Auto-reconnect if token exists and not expired (tokens last ~1h)
   const token = getToken();
@@ -1079,6 +1098,40 @@ function calcProfit(o){
   const u=orderUSD(o);
   return u.sale - u.product - u.shipping - u.duties - u.deposit;
 }
+// ¿A este pedido le falta la factura de FedEx?
+function faltaShip(o){ return o.shippingARS===''||o.shippingARS==null; }
+function faltaDut(o){ return o.dutiesARS===''||o.dutiesARS==null; }
+function tieneVenta(o){ return o.salePrice!==''&&o.salePrice!=null; }
+
+// Cuánto suele costar envío y duties, según los pedidos que YA se facturaron completos,
+// mirando todos los meses. Se usa la mediana y no el promedio para que un envío atípico
+// no distorsione la estimación.
+function provisionInfo(){
+  const ships=[], duts=[];
+  Object.values(S.months||{}).forEach(mes=>{
+    (mes.orders||[]).forEach(o=>{
+      const sh=parseFloat(o.shippingARS), du=parseFloat(o.dutiesARS);
+      if(!isNaN(sh)&&sh>0) ships.push(sh);
+      if(!isNaN(du)&&du>0) duts.push(du);
+    });
+  });
+  const med = a => { if(!a.length) return 0; const b=a.slice().sort((x,y)=>x-y); return b[Math.floor((b.length-1)/2)]; };
+  const manualRaw = parseFloat(localStorage.getItem('aw_prov'));
+  return {
+    manual: (!isNaN(manualRaw) && manualRaw>0) ? manualRaw : null,
+    ship: med(ships), dut: med(duts),
+    nShip: ships.length, nDut: duts.length
+  };
+}
+
+// Lo que hay que provisionar en un pedido concreto: solo la parte que falta.
+function provisionDe(o, p){
+  const fs=faltaShip(o), fd=faltaDut(o);
+  if(!fs && !fd) return 0;
+  if(p.manual!=null) return p.manual;
+  return (fs?p.ship:0)+(fd?p.dut:0);
+}
+
 function orderStatus(o){
   const hasSale = o.salePrice!==''&&o.salePrice!=null;
   const hasProd = o.productCostARS!==''&&o.productCostARS!=null;
@@ -1167,7 +1220,20 @@ function renderDashboard(){
   const totalExp=m.expenses.reduce((a,e)=>a+(parseFloat(e.amount)||0),0);
   const net=gross-totalExp;
   const ownerPct=parseFloat(localStorage.getItem('aw_ownerpct')||'100');
-  const owner=net*(ownerPct/100);
+
+  // Provisión: los pedidos ya cobrados a los que todavía no les llegó la factura de FedEx
+  // cuentan hoy como si no tuvieran costo de logística, así que la ganancia sale inflada.
+  const prov = provisionInfo();
+  let provARS=0, nPend=0;
+  m.orders.forEach(o=>{
+    if(!tieneVenta(o)) return;
+    const pv=provisionDe(o, prov);
+    if(pv>0){ provARS+=pv; nPend++; }
+  });
+  const provUSD = arsToUsd(provARS);
+  const netProv = net - provUSD;
+  // "Para vos" muestra el número conservador mientras haya envíos sin facturar.
+  const owner = (nPend ? netProv : net) * (ownerPct/100);
   const margin=sales>0?(net/sales*100):0;
 
   sv2('m-sales','$'+sales.toFixed(2));
@@ -1176,6 +1242,9 @@ function renderDashboard(){
   sv2('m-exp','$'+totalExp.toFixed(2));
   sv2('m-net','$'+net.toFixed(2),net);
   sv2('m-owner','$'+owner.toFixed(2),owner);
+  const ownerLbl=document.getElementById('m-owner-lbl');
+  if(ownerLbl) ownerLbl.textContent = nPend ? 'Para vos (con provisión)' : 'Para vos';
+  renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS);
 
   const compl=m.orders.filter(o=>orderStatus(o)==='complete').length;
   const part=m.orders.filter(o=>orderStatus(o)==='partial').length;
@@ -1198,6 +1267,68 @@ function renderDashboard(){
   if(!bad.length) inc.innerHTML='<span style="color:var(--ok)">✓ Todos los pedidos tienen datos completos</span>';
   else inc.innerHTML=bad.map(o=>`<span class="badge warn" style="margin:2px">${o.num}</span>`).join(' ')
     +'<div style="margin-top:4px;font-size:11px;color:var(--text2)">Faltan datos FedEx o costo de productos.</div>';
+}
+
+// Muestra la diferencia entre la ganancia optimista de hoy y la que queda si se
+// descuenta lo que falta facturar, para decidir cuánto se puede retirar sin quedar corto.
+function renderProvision(m, prov, nPend, provUSD, net, netProv, ownerPct, provARS){
+  const el=document.getElementById('d-prov');
+  if(!el) return;
+  const fx=getFx();
+  const ars=n=>'$'+Math.round(n).toLocaleString('es-AR');
+
+  const autoTxt=document.getElementById('cfg-prov-auto');
+  if(autoTxt){
+    autoTxt.innerHTML = prov.nShip
+      ? `Hoy la automática es <strong>${ars(prov.ship+prov.dut)} ARS</strong> por pedido (${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties, sobre ${prov.nShip} envíos ya facturados).`
+      : 'Todavía no hay pedidos facturados como para calcularla sola.';
+  }
+
+  if(!m.orders.length){ el.innerHTML='<span style="color:var(--text2)">Sin pedidos en este mes.</span>'; return; }
+
+  // Cuántos pedidos cobrados esperan factura, más allá de si se puede estimar el costo.
+  const sinFactura = m.orders.filter(o => tieneVenta(o) && (faltaShip(o)||faltaDut(o))).length;
+  if(!sinFactura){
+    el.innerHTML='<span style="color:var(--ok)">✓ Todos los pedidos cobrados de este mes ya tienen su envío y sus duties cargados. La ganancia de arriba es definitiva, no estimada.</span>';
+    return;
+  }
+  if(!fx){
+    el.innerHTML='<span style="color:var(--warn)">Hay '+sinFactura+' pedido'+(sinFactura>1?'s':'')+' cobrado'+(sinFactura>1?'s':'')+' sin la factura de FedEx, pero falta configurar el tipo de cambio para estimar cuánto descontar.</span>';
+    return;
+  }
+  if(!nPend){
+    // Hay pendientes pero no hay con qué estimar: decirlo, no dar por definitiva la ganancia.
+    el.innerHTML='<span style="color:var(--warn)"><strong>'+sinFactura+'</strong> pedido'+(sinFactura>1?'s':'')+
+      ' cobrado'+(sinFactura>1?'s':'')+' sin la factura de FedEx todavía, así que la ganancia de arriba está inflada.</span>'+
+      '<div style="font-size:11px;color:var(--text2);margin-top:5px">Todavía no hay envíos facturados como para estimar el costo solo. '+
+      'Cargá un reporte de FedEx, o poné una provisión manual por pedido en <strong>Config</strong>.</div>';
+    return;
+  }
+  const origen = prov.manual!=null
+    ? `provisión manual de ${ars(prov.manual)} ARS por pedido (Config)`
+    : (prov.nShip
+        ? `mediana de tus ${prov.nShip} envíos ya facturados: ${ars(prov.ship)} de envío + ${ars(prov.dut)} de duties`
+        : 'todavía sin historial para estimar');
+  const fila=(lbl,val,color,nota)=>
+    `<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0">
+       <span>${lbl}${nota?`<div style="font-size:10px;color:var(--text3)">${nota}</div>`:''}</span>
+       <strong style="white-space:nowrap;${color?'color:'+color:''}">${val}</strong>
+     </div>`;
+
+  el.innerHTML =
+    `<div style="margin-bottom:7px"><strong>${nPend}</strong> pedido${nPend>1?'s':''} de este mes con la venta cobrada y sin la factura de FedEx todavía.
+       <div style="font-size:11px;color:var(--text2);margin-top:2px">Se estima el costo que falta usando la ${origen}.</div>
+     </div>`
+    + fila('Ganancia neta del mes','$'+net.toFixed(2),null,'como está hoy: cuenta esas ventas sin su costo de envío')
+    + fila('Costo estimado que falta','−$'+provUSD.toFixed(2),'var(--warn)',ars(provARS)+' ARS al cambio $'+fx.toLocaleString('es-AR'))
+    + `<div class="divider"></div>`
+    + fila('<strong>Ganancia realista de hoy</strong>','$'+netProv.toFixed(2), netProv>=0?'var(--ok)':'var(--err)')
+    + fila('Podés retirar ('+ownerPct+'%)','$'+(netProv*(ownerPct/100)).toFixed(2),'var(--ok)')
+    + fila('Reserva a no tocar','$'+provUSD.toFixed(2),'var(--warn)','guardalo hasta que llegue la factura de FedEx')
+    + `<div style="font-size:11px;color:var(--text2);margin-top:7px">
+         Cuando importes el reporte de FedEx, estos costos se cargan solos en los pedidos y este bloque se vacía.
+         La ganancia de arriba pasa a ser la definitiva.
+       </div>`;
 }
 
 function sv2(id,txt,val){
