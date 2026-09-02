@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
@@ -98,7 +98,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
 .exp-item{display:flex;align-items:center;gap:7px;padding:6px 9px;background:var(--bg2);border-radius:var(--r)}
 .exp-item .desc{flex:1;font-size:12px}
 .exp-item .amt{font-weight:500;font-size:12px;min-width:60px;text-align:right}
-.tbl-wrap{overflow-x:auto;max-height:300px;overflow-y:auto}
+.tbl-wrap{overflow-x:auto}
 /* Modals */
 .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;overflow-y:auto;padding:16px}
 .overlay.on{display:block}
@@ -136,9 +136,119 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
 .save-indicator.saving{color:var(--warn)}
 .save-indicator.saved{color:var(--ok)}
 .save-indicator.warn{color:var(--warn);font-weight:500}
+
+/* ===== AVISOS (toasts) — reemplazan los alert() que frenaban la app ===== */
+#toast-zone{
+  position:fixed;bottom:14px;right:14px;z-index:200;
+  display:flex;flex-direction:column;gap:8px;align-items:flex-end;
+  max-width:min(420px,calc(100vw - 28px));pointer-events:none
+}
+.toast{
+  pointer-events:auto;background:var(--bg);color:var(--text);
+  border:1px solid var(--border2);border-left:3px solid var(--info);
+  border-radius:var(--r);box-shadow:0 6px 20px rgba(0,0,0,.16);
+  padding:10px 12px;font-size:13px;line-height:1.5;width:100%;
+  display:flex;gap:9px;align-items:flex-start;
+  animation:toast-in .18s ease-out
+}
+.toast.ok{border-left-color:var(--ok)}
+.toast.warn{border-left-color:var(--warn)}
+.toast.err{border-left-color:var(--err)}
+.toast .t-ico{flex-shrink:0;font-size:15px;line-height:1.3}
+.toast.ok .t-ico{color:var(--ok)}
+.toast.warn .t-ico{color:var(--warn)}
+.toast.err .t-ico{color:var(--err)}
+.toast .t-msg{flex:1;white-space:pre-wrap;word-break:break-word;min-width:0}
+.toast .t-act{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.toast .t-x{
+  background:none;border:none;color:var(--text3);cursor:pointer;
+  font-size:15px;line-height:1;padding:2px 4px;border-radius:4px
+}
+.toast .t-x:hover{color:var(--text)}
+.toast.out{animation:toast-out .16s ease-in forwards}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes toast-out{to{opacity:0;transform:translateY(6px)}}
+@media(max-width:560px){
+  #toast-zone{left:12px;right:12px;bottom:12px;max-width:none;align-items:stretch}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important}
+}
+
+/* ===== TABLA DE PEDIDOS ===== */
+/* Antes tenía max-height:300px con scroll propio: scroll adentro del scroll de
+   la página, molesto sobre todo en el teléfono. Ahora crece y scrollea la página. */
+.tbl-wrap{overflow-x:auto}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--text)}
+th .sort-ar{font-size:9px;color:var(--acc,var(--info));margin-left:2px}
+.cell-input{
+  width:100%;min-width:64px;font-size:12px;padding:2px 4px;
+  border:1px solid var(--info);border-radius:3px;background:var(--bg);color:var(--text);
+  font-family:inherit
+}
+.ord-toolbar{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--border)}
+.ord-toolbar input[type="search"]{
+  flex:1;min-width:150px;font-size:13px;padding:5px 9px;
+  border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text)
+}
+.fchip{
+  font-size:11.5px;padding:4px 9px;border-radius:999px;cursor:pointer;white-space:nowrap;
+  border:1px solid var(--border2);background:var(--bg);color:var(--text2)
+}
+.fchip.on{background:var(--info-bg);border-color:var(--info);color:var(--info);font-weight:600}
+.ord-count{font-size:11.5px;color:var(--text2);white-space:nowrap}
+
+/* ===== PROGRESO DEL MES ===== */
+.steps{display:flex;gap:0;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--border);background:var(--bg2)}
+.step{display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 14px 2px 0;color:var(--text2)}
+.step .s-ico{font-size:14px;flex-shrink:0}
+.step.done{color:var(--ok)}
+.step.done .s-ico{color:var(--ok)}
+.step.todo .s-ico{color:var(--text3)}
+.step b{font-weight:600;color:var(--text)}
+.step .s-n{font-variant-numeric:tabular-nums}
+
+/* ===== FICHAS EN EL TELEFONO ===== */
+/* Doce columnas no entran en un teléfono. Abajo de 620px la misma tabla se
+   reordena como fichas, sin duplicar el render ni la lógica. */
+@media(max-width:620px){
+  .tbl-resp thead{display:none}
+  .tbl-resp tbody tr{
+    display:block;border:1px solid var(--border);border-radius:var(--r);
+    margin-bottom:8px;padding:5px 9px;background:var(--bg)
+  }
+  .tbl-resp tbody td{
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
+    border:none;padding:4px 0;text-align:right
+  }
+  .tbl-resp tbody td::before{
+    content:attr(data-lbl);color:var(--text2);font-size:11px;text-align:left;flex-shrink:0
+  }
+  .tbl-resp tbody td[data-lbl=""]{justify-content:flex-end}
+  .tbl-resp tbody td[data-lbl=""]::before{content:none}
+  .tbl-resp tbody tr td:first-child{justify-content:flex-start}
+  .tbl-wrap{overflow-x:visible}
+}
+
+/* ===== HISTORICO ===== */
+.hbar{display:block;height:6px;border-radius:3px;min-width:2px}
+.hbar-wrap{display:flex;align-items:center;gap:6px;min-width:88px}
+#hist-tbl td,#hist-tbl th{font-variant-numeric:tabular-nums}
+#hist-tbl tr.tot td{font-weight:600;border-top:2px solid var(--border2);background:var(--bg2)}
+#hist-tbl tr.cur td{background:var(--info-bg)}
+#hist-tbl td.neg{color:var(--err)}
+#hist-tbl td.pos{color:var(--ok)}
+
+/* ===== FOCO DE TECLADO ===== */
+a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,
+textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{
+  outline:2px solid var(--info);outline-offset:2px;border-radius:3px
+}
 </style>
 </head>
 <body>
+<div id="toast-zone" role="status" aria-live="polite" aria-atomic="false"></div>
 <div class="app">
 
   <!-- MODAL: asignar AWBs -->
@@ -204,23 +314,24 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v42</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v45</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
       <div class="save-indicator" id="save-ind"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-      <select id="monthSel" onchange="changeMonth()" style="font-size:12px"></select>
+      <select id="monthSel" onchange="changeMonth()" style="font-size:12px" aria-label="Mes que se está viendo"></select>
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="tab active" onclick="showPanel('dashboard',this)"><i class="ti ti-chart-bar"></i> Dashboard</button>
-    <button class="tab" onclick="showPanel('orders',this)"><i class="ti ti-package"></i> Pedidos</button>
-    <button class="tab" onclick="showPanel('fedex',this)"><i class="ti ti-file-invoice"></i> FedEx</button>
-    <button class="tab" onclick="showPanel('expenses',this)"><i class="ti ti-receipt"></i> Gastos</button>
-    <button class="tab" onclick="showPanel('settings',this)"><i class="ti ti-settings"></i> Config</button>
+  <div class="tabs" role="tablist" aria-label="Secciones">
+    <button role="tab" class="tab active" onclick="showPanel('dashboard',this)"><i class="ti ti-chart-bar"></i> Dashboard</button>
+    <button role="tab" class="tab" onclick="showPanel('orders',this)"><i class="ti ti-package"></i> Pedidos</button>
+    <button role="tab" class="tab" onclick="showPanel('fedex',this)"><i class="ti ti-file-invoice"></i> FedEx</button>
+    <button role="tab" class="tab" onclick="showPanel('expenses',this)"><i class="ti ti-receipt"></i> Gastos</button>
+    <button role="tab" class="tab" onclick="showPanel('history',this)"><i class="ti ti-timeline"></i> Histórico</button>
+    <button role="tab" class="tab" onclick="showPanel('settings',this)"><i class="ti ti-settings"></i> Config</button>
   </div>
 
   <div class="content">
@@ -272,7 +383,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
           Subí el CSV que exporta tu empleado con los costos por pedido. La app crea todos los pedidos del mes automáticamente, convierte los pesos a USD con el tipo de cambio configurado, y deja listos los campos de venta y FedEx para completar.
         </p>
-        <div class="upload-zone" onclick="document.getElementById('csv-imp').click()">
+        <div class="upload-zone" role="button" tabindex="0" onclick="document.getElementById('csv-imp').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('csv-imp').click()}">
           <input type="file" id="csv-imp" accept=".csv,.xlsx,.xls" onchange="importCostCSV(this.files[0])">
           <i class="ti ti-file-spreadsheet" style="font-size:24px;margin-bottom:5px"></i>
           <div style="font-size:13px;font-weight:500">Subir CSV / Excel de costos</div>
@@ -304,7 +415,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         <p style="font-size:12px;color:var(--text2);margin-bottom:8px">
           Exportá tus pedidos desde Shopify (Orders → Export → CSV) y subí el archivo. La app completa el campo <strong>Venta</strong> de cada pedido con el Total que pagó el cliente, cruzando por número de pedido.
         </p>
-        <div class="upload-zone" onclick="document.getElementById('shopify-imp').click()">
+        <div class="upload-zone" role="button" tabindex="0" onclick="document.getElementById('shopify-imp').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('shopify-imp').click()}">
           <input type="file" id="shopify-imp" accept=".csv,.xlsx,.xls" onchange="importShopifyCSV(this.files[0])">
           <i class="ti ti-shopping-cart" style="font-size:24px;margin-bottom:5px"></i>
           <div style="font-size:13px;font-weight:500">Subir ventas de Shopify (CSV o Excel)</div>
@@ -327,10 +438,10 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
 
       <div class="card">
         <div class="card-title"><i class="ti ti-plus"></i> Nuevo pedido</div>
-        <div class="row"><span class="lbl">Nº Pedido</span><input type="text" id="o-num" placeholder="#2350 o #2350-2" style="width:120px"><span class="lbl">Tracking AWB</span><input type="text" id="o-trk" placeholder="886000000000" style="width:160px"></div>
-        <div class="row"><span class="lbl">Venta (USD)</span><input type="number" id="o-sale" placeholder="0.00" step="0.01"><span class="lbl">Costo prod. (ARS)</span><input type="number" id="o-cost" placeholder="pesos" step="0.01"></div>
-        <div class="row"><span class="lbl">Envío FedEx (ARS)</span><input type="number" id="o-ship" placeholder="pesos" step="0.01"><span class="lbl">Duties FedEx (ARS)</span><input type="number" id="o-duty" placeholder="pesos" step="0.01"></div>
-        <div class="row"><span class="lbl">Depósito ($)</span><input type="number" id="o-dep" placeholder="3.25" step="0.01" style="width:90px"><span class="lbl">Notas</span><input type="text" id="o-notes" placeholder="ej: 2do envío" style="width:155px"></div>
+        <div class="row"><label class="lbl" for="o-num">Nº Pedido</label><input type="text" id="o-num" placeholder="#2350 o #2350-2" style="width:120px"><label class="lbl" for="o-trk">Tracking AWB</label><input type="text" id="o-trk" placeholder="886000000000" style="width:160px"></div>
+        <div class="row"><label class="lbl" for="o-sale">Venta (USD)</label><input type="number" id="o-sale" placeholder="0.00" step="0.01"><label class="lbl" for="o-cost">Costo prod. (ARS)</label><input type="number" id="o-cost" placeholder="pesos" step="0.01"></div>
+        <div class="row"><label class="lbl" for="o-ship">Envío FedEx (ARS)</label><input type="number" id="o-ship" placeholder="pesos" step="0.01"><label class="lbl" for="o-duty">Duties FedEx (ARS)</label><input type="number" id="o-duty" placeholder="pesos" step="0.01"></div>
+        <div class="row"><label class="lbl" for="o-dep">Depósito ($)</label><input type="number" id="o-dep" placeholder="3.25" step="0.01" style="width:90px"><label class="lbl" for="o-notes">Notas</label><input type="text" id="o-notes" placeholder="ej: 2do envío" style="width:155px"></div>
         <div class="btn-row">
           <button class="btn primary" onclick="addOrder()"><i class="ti ti-plus"></i> Agregar</button>
           <button class="btn" onclick="clearOrderForm()"><i class="ti ti-x"></i> Limpiar</button>
@@ -341,14 +452,24 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
           <span style="flex:1;min-width:230px"><i class="ti ti-pencil" style="font-size:11px"></i> Tocá cualquier celda para editarla. <strong>Venta</strong> y <strong>Depósito</strong> se cargan en USD; <strong>Producto</strong>, <strong>Envío</strong> y <strong>Duties</strong> en pesos.</span>
           <button class="btn sm danger" onclick="resetCostValues()"><i class="ti ti-eraser"></i> Limpiar costos de productos (mes)</button>
         </div>
+        <div class="steps" id="ord-steps"></div>
+        <div class="ord-toolbar">
+          <label for="ord-q" class="sr-only" style="position:absolute;left:-9999px">Buscar pedido</label>
+          <input type="search" id="ord-q" placeholder="Buscar por pedido, tracking o nota…" oninput="setOrdQuery(this.value)">
+          <button type="button" class="fchip on" id="fc-todos" onclick="setOrdFilter('todos')">Todos</button>
+          <button type="button" class="fchip" id="fc-incompletos" onclick="setOrdFilter('incompletos')">Incompletos</button>
+          <button type="button" class="fchip" id="fc-sinenviar" onclick="setOrdFilter('sinenviar')">Sin enviar</button>
+          <button type="button" class="fchip" id="fc-sincosto" onclick="setOrdFilter('sincosto')">Sin costo</button>
+          <span class="ord-count" id="ord-count"></span>
+        </div>
         <div id="orders-bulk" style="display:none;align-items:center;gap:8px;padding:7px 12px;background:var(--warn-bg);border-bottom:1px solid var(--border);font-size:12px;flex-wrap:wrap">
           <span id="orders-bulk-lbl" style="flex:1;min-width:150px;color:var(--warn);font-weight:600"></span>
           <button class="btn sm" onclick="toggleAllOrders(false)">Deseleccionar</button>
           <button class="btn sm danger" onclick="delSelectedOrders()"><i class="ti ti-trash"></i> Borrar seleccionados</button>
         </div>
         <div class="tbl-wrap">
-          <table>
-            <thead><tr><th style="width:30px;text-align:center"><input type="checkbox" id="orders-chk-all" onclick="toggleAllOrders(this.checked)" title="Seleccionar todos"></th><th>Pedido</th><th>Tracking</th><th title="Cantidad de botellas del pedido">Bot.</th><th>Venta USD</th><th>Prod. USD</th><th>Envío USD</th><th>Duties USD</th><th>Dep. USD</th><th>Ganancia USD</th><th>Estado</th><th></th></tr></thead>
+          <table class="tbl-resp">
+            <thead id="orders-th"></thead>
             <tbody id="orders-tb"></tbody>
           </table>
         </div>
@@ -430,7 +551,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
             </p>
           </div>
         </details>
-        <div class="upload-zone" onclick="document.getElementById('fx-report').click()" style="border-color:var(--ok)">
+        <div class="upload-zone" role="button" tabindex="0" onclick="document.getElementById('fx-report').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('fx-report').click()}" style="border-color:var(--ok)">
           <input type="file" id="fx-report" accept=".csv,.xlsx,.xls" onchange="importFedexReport(this.files[0])">
           <i class="ti ti-file-spreadsheet" style="font-size:24px;margin-bottom:5px;color:var(--ok)"></i>
           <div style="font-size:13px;font-weight:500">Subir reporte de FedEx (CSV o Excel)</div>
@@ -505,19 +626,19 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
 
         <!-- Upload zones -->
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
-          <div class="exp-upload-zone" onclick="document.getElementById('exp-img').click()" title="Imagen del estado de cuenta o factura">
+          <div class="exp-upload-zone" role="button" tabindex="0" onclick="document.getElementById('exp-img').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('exp-img').click()}" title="Imagen del estado de cuenta o factura">
             <input type="file" id="exp-img" accept="image/*" style="display:none" onchange="processExpenseFile(this.files[0],'image')">
             <i class="ti ti-photo" style="font-size:22px;color:var(--acc)"></i>
             <div style="font-size:12px;font-weight:600;margin-top:4px">Imagen</div>
             <div style="font-size:10px;color:var(--text2);margin-top:2px">JPG, PNG, etc.</div>
           </div>
-          <div class="exp-upload-zone" onclick="document.getElementById('exp-pdf').click()" title="PDF del estado de cuenta o factura">
+          <div class="exp-upload-zone" role="button" tabindex="0" onclick="document.getElementById('exp-pdf').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('exp-pdf').click()}" title="PDF del estado de cuenta o factura">
             <input type="file" id="exp-pdf" accept=".pdf" style="display:none" onchange="processExpenseFile(this.files[0],'pdf')">
             <i class="ti ti-file-type-pdf" style="font-size:22px;color:#e74c3c"></i>
             <div style="font-size:12px;font-weight:600;margin-top:4px">PDF</div>
             <div style="font-size:10px;color:var(--text2);margin-top:2px">Estado de cuenta</div>
           </div>
-          <div class="exp-upload-zone" onclick="document.getElementById('exp-csv').click()" title="CSV o Excel con columnas de descripción y monto">
+          <div class="exp-upload-zone" role="button" tabindex="0" onclick="document.getElementById('exp-csv').click()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('exp-csv').click()}" title="CSV o Excel con columnas de descripción y monto">
             <input type="file" id="exp-csv" accept=".csv,.xlsx,.xls" style="display:none" onchange="processExpenseCSV(this.files[0])">
             <i class="ti ti-table" style="font-size:22px;color:#27ae60"></i>
             <div style="font-size:12px;font-weight:600;margin-top:4px">CSV / Excel</div>
@@ -542,7 +663,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
           </select>
           <input type="text" id="exp-cust" placeholder="Descripción..." style="display:none;width:140px">
         </div>
-        <div class="row"><span class="lbl">Monto (USD)</span><input type="number" id="exp-amt" placeholder="0.00" step="0.01"></div>
+        <div class="row"><label class="lbl" for="exp-amt">Monto (USD)</label><input type="number" id="exp-amt" placeholder="0.00" step="0.01"></div>
         <div class="btn-row"><button class="btn primary" onclick="addExpense()"><i class="ti ti-plus"></i> Agregar</button></div>
       </div>
 
@@ -561,6 +682,20 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
     </div>
 
     <!-- SETTINGS -->
+    <!-- HISTORICO -->
+    <div class="panel" id="panel-history">
+      <div class="card" style="padding:0">
+        <div style="padding:10px 13px;border-bottom:1px solid var(--border)">
+          <div class="card-title" style="margin:0"><i class="ti ti-timeline"></i> Mes a mes</div>
+          <p style="font-size:11.5px;color:var(--text2);margin:4px 0 0">
+            Todo convertido a dólares con el tipo de cambio configurado hoy, así los meses se
+            pueden comparar entre sí. La ganancia es ventas menos costos de pedidos menos gastos.
+          </p>
+        </div>
+        <div class="tbl-wrap"><table class="tbl-resp" id="hist-tbl"></table></div>
+      </div>
+    </div>
+
     <div class="panel" id="panel-settings">
       <!-- Google Drive auth -->
       <div class="card">
@@ -602,7 +737,7 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
           </div>
           </details>
           <div class="row" style="margin-top:10px">
-            <span class="lbl">Google Client ID</span>
+            <label class="lbl" for="gclient-id">Google Client ID</label>
             <input type="text" id="gclient-id" placeholder="000000000-xxxxxxxx.apps.googleusercontent.com" style="width:290px;font-size:11px;font-family:monospace">
             <button class="btn sm" onclick="saveClientId()">Guardar</button>
           </div>
@@ -613,8 +748,8 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
         <div class="card-title"><i class="ti ti-key"></i> API Key de Claude (para IA en PDFs e imágenes)</div>
         <p style="font-size:12px;color:var(--text2);margin-bottom:8px">Conseguila en <strong>console.anthropic.com</strong>. Se guarda solo en tu dispositivo.</p>
         <div class="row">
-          <span class="lbl">API Key</span>
-          <input type="password" id="claude-key" placeholder="sk-ant-..." style="width:260px;font-family:monospace">
+          <label class="lbl" for="claude-key">API Key</label>
+          <input type="password" id="claude-key" placeholder="sk-ant-..." style="width:260px;font-family:monospace" autocomplete="off">
         </div>
         <div class="row">
           <span class="lbl">Modelo</span>
@@ -635,23 +770,23 @@ details[open] .setup-summary::before{transform:rotate(90deg)}
       <div class="two-col">
         <div class="card">
           <div class="card-title"><i class="ti ti-currency-dollar"></i> Tipo de cambio</div>
-          <div class="row"><span class="lbl">1 USD = ARS</span><input type="number" id="cfg-fx" placeholder="1450" style="width:90px"><button class="btn sm" onclick="saveCfg('fx','cfg-fx')">OK</button></div>
+          <div class="row"><label class="lbl" for="cfg-fx">1 USD = ARS</label><input type="number" id="cfg-fx" placeholder="1450" style="width:90px"><button class="btn sm" onclick="saveCfg('fx','cfg-fx')">OK</button></div>
         </div>
         <div class="card">
           <div class="card-title"><i class="ti ti-building-warehouse"></i> Depósito por pedido</div>
-          <div class="row"><span class="lbl">USD/pedido</span><input type="number" id="cfg-dep" placeholder="3.25" step="0.01" style="width:90px"><button class="btn sm" onclick="saveCfg('dep','cfg-dep')">OK</button></div>
+          <div class="row"><label class="lbl" for="cfg-dep">USD/pedido</label><input type="number" id="cfg-dep" placeholder="3.25" step="0.01" style="width:90px"><button class="btn sm" onclick="saveCfg('dep','cfg-dep')">OK</button></div>
         </div>
       </div>
 
       <div class="card">
         <div class="card-title"><i class="ti ti-hourglass-high"></i> Provisión por envío pendiente</div>
         <div class="row">
-          <span class="lbl">ARS por pedido</span>
+          <label class="lbl" for="cfg-prov">ARS por pedido</label>
           <input type="number" id="cfg-prov" placeholder="automático" style="width:120px">
           <button class="btn sm" onclick="saveCfg('prov','cfg-prov')">OK</button>
         </div>
         <div class="row" style="margin-top:6px">
-          <span class="lbl">Duties por envío (USD)</span>
+          <label class="lbl" for="cfg-duty">Duties por envío (USD)</label>
           <input type="number" id="cfg-duty" placeholder="automático" step="0.01" style="width:120px">
           <button class="btn sm" onclick="saveCfg('duty','cfg-duty')">OK</button>
         </div>
@@ -737,9 +872,9 @@ const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 function getClientId(){ return localStorage.getItem('aw_gclient') || ''; }
 function saveClientId(){
   const v = document.getElementById('gclient-id').value.trim();
-  if(!v){ alert('Ingresá el Client ID'); return; }
+  if(!v){ notify('Ingresá el Client ID'); return; }
   localStorage.setItem('aw_gclient', v);
-  alert('Client ID guardado. Ahora podés tocar "Conectar con Google Drive".');
+  notify('Client ID guardado. Ahora podés tocar "Conectar con Google Drive".');
 }
 
 function getToken(){ return localStorage.getItem('aw_drive_token') || ''; }
@@ -748,7 +883,7 @@ function getToken(){ return localStorage.getItem('aw_drive_token') || ''; }
 function connectDrive(){
   const clientId = getClientId();
   if(!clientId){
-    alert('Primero ingresá y guardá tu Google Client ID arriba.');
+    notify('Primero ingresá y guardá tu Google Client ID arriba.');
     return;
   }
   setDriveStatus('connecting');
@@ -774,7 +909,7 @@ function connectDrive(){
     'width=520,height=620,left=200,top=100'
   );
 
-  if(!popup){ alert('El navegador bloqueó el popup. Permitilo para este sitio y volvé a intentar.'); setDriveStatus('disconnected'); return; }
+  if(!popup){ notify('El navegador bloqueó el popup. Permitilo para este sitio y volvé a intentar.'); setDriveStatus('disconnected'); return; }
 
   // Poll popup URL for token in hash
   const poll = setInterval(async () => {
@@ -786,7 +921,7 @@ function connectDrive(){
         const hash = url.split('#')[1] || url.split('?')[1] || '';
         const p = new URLSearchParams(hash);
         const token = p.get('access_token');
-        if(!token){ setDriveStatus('disconnected'); alert('No se recibió token de acceso.'); return; }
+        if(!token){ setDriveStatus('disconnected'); notify('No se recibió token de acceso.'); return; }
         localStorage.setItem('aw_drive_token', token);
         // Token expiry ~1h, store timestamp
         localStorage.setItem('aw_drive_token_ts', Date.now().toString());
@@ -840,7 +975,7 @@ async function driveReq(method, path, body, contentType){
     // Token expired
     localStorage.removeItem('aw_drive_token');
     setDriveStatus('disconnected');
-    alert('Sesión de Drive expirada. Volvé a conectar en Config.');
+    notify('Sesión de Drive expirada. Volvé a conectar en Config.');
     return null;
   }
   if(!r.ok) return null;
@@ -978,7 +1113,7 @@ function schedSave(){
 }
 
 async function forceSave(){
-  if(!getToken()){ sv(); setSaveInd('saved','Guardado localmente'); alert('Sin Drive conectado — guardado solo en el navegador.'); return; }
+  if(!getToken()){ sv(); setSaveInd('saved','Guardado localmente'); notify('Sin Drive conectado — guardado solo en el navegador.'); return; }
   sv();
   setSaveInd('saving','Guardando en Drive...');
   driveSyncReady = true; // el usuario pidió guardar explícitamente
@@ -998,6 +1133,68 @@ function setSaveInd(cls, txt){
   el.className='save-indicator '+(cls||'');
   const icon = cls==='saving' ? '<div class="spinner"></div>' : cls==='warn' ? '<i class="ti ti-alert-triangle"></i>' : '<i class="ti ti-check"></i>';
   el.innerHTML = txt ? icon+' '+txt : '';
+}
+
+// ===== AVISOS =====
+// Antes cada resultado salía por alert(), que congela la pantalla, no se puede estilar
+// y en el teléfono aparece como un popup del sistema. Ahora van como toasts: no frenan,
+// se pueden apilar, y los que traen un resumen largo se quedan hasta que los cerrás.
+let _lastNotice = '';
+function lastNotice(){ return _lastNotice; }
+function clearNotice(){ _lastNotice = ''; }
+
+// msg: texto (admite saltos de línea) · kind: 'ok' | 'warn' | 'err' | 'info'
+// undo: {label, fn} opcional, para poder revertir una acción destructiva
+function notify(msg, kind, undo){
+  _lastNotice = String(msg==null?'':msg);
+  const zone = document.getElementById('toast-zone');
+  if(!zone || !zone.appendChild) return;            // entorno sin DOM real (tests)
+
+  const t = document.createElement('div');
+  const k = kind || (/^✓/.test(_lastNotice) ? 'ok' : 'info');
+  t.className = 'toast ' + k;
+  const ico = k==='ok' ? 'ti-check' : k==='warn' ? 'ti-alert-triangle' : k==='err' ? 'ti-alert-circle' : 'ti-info-circle';
+
+  const iconEl = document.createElement('i');
+  iconEl.className = 'ti ' + ico + ' t-ico';
+  const msgEl = document.createElement('div');
+  msgEl.className = 't-msg';
+  msgEl.textContent = _lastNotice;                  // textContent: nada de HTML inyectado
+  const actEl = document.createElement('div');
+  actEl.className = 't-act';
+
+  let cerrado = false;
+  const cerrar = () => {
+    if(cerrado) return; cerrado = true;
+    t.classList.add('out');
+    setTimeout(()=>{ if(t.parentNode) t.parentNode.removeChild(t); }, 170);
+  };
+
+  if(undo && typeof undo.fn === 'function'){
+    const b = document.createElement('button');
+    b.className = 'btn sm';
+    b.textContent = undo.label || 'Deshacer';
+    b.onclick = () => { cerrar(); undo.fn(); };
+    actEl.appendChild(b);
+  }
+  const x = document.createElement('button');
+  x.className = 't-x'; x.type = 'button';
+  x.setAttribute('aria-label','Cerrar aviso');
+  x.textContent = '×';
+  x.onclick = cerrar;
+  actEl.appendChild(x);
+
+  t.appendChild(iconEl); t.appendChild(msgEl); t.appendChild(actEl);
+  zone.appendChild(t);
+
+  // Los resúmenes largos y los que ofrecen deshacer se quedan hasta que los cerrás.
+  const largo = _lastNotice.length > 260;
+  if(!largo && !undo){
+    const ms = Math.min(14000, 3800 + _lastNotice.length * 28);
+    setTimeout(cerrar, ms);
+  } else if(undo){
+    setTimeout(cerrar, 12000);
+  }
 }
 
 // ===== LOCAL STORAGE =====
@@ -1094,16 +1291,22 @@ function ld(){
 function getClaudeKey(){ return localStorage.getItem('aw_ckey')||''; }
 
 // ===== UI =====
+// Cambiar de pestaña desde un botón que no es el tab (banners, estados vacíos).
+function showPanelByName(name){
+  const tabs=document.querySelectorAll('.tab');
+  const idx={dashboard:0,orders:1,fedex:2,expenses:3,history:4,settings:5}[name];
+  showPanel(name, (tabs && tabs[idx]) ? tabs[idx] : null);
+}
 function showPanel(name,el){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.getElementById('panel-'+name).classList.add('active');
-  el.classList.add('active');
+  if(el) el.classList.add('active');
   renderAll();
 }
 function changeMonth(){ cur=document.getElementById('monthSel').value; renderAll(); }
 function renderAll(){
-  renderDashboard(); renderOrders(); renderExpenses(); renderFxHist();
+  renderDashboard(); renderOrders(); renderExpenses(); renderFxHist(); renderHistory();
   const fm=document.getElementById('fedex-reset-month'); if(fm) fm.textContent=cur;
 }
 
@@ -1399,6 +1602,8 @@ function renderDashboard(){
     provSinEnviarUSD: arsToUsd(provSinEnviarARS), provEsperandoUSD: arsToUsd(provEsperandoARS),
     provProdUSD: arsToUsd(provProdARS), provLogUSD: arsToUsd(provLogARS) });
 
+  renderDashBanner(m);
+
   const compl=m.orders.filter(o=>orderStatus(o)==='complete').length;
   const part=m.orders.filter(o=>orderStatus(o)==='partial').length;
   document.getElementById('d-orders').innerHTML=m.orders.length?`
@@ -1538,6 +1743,31 @@ function renderProvision(m, prov, d){
        </div>`;
 }
 
+// El <div id="dash-banner"> existía desde siempre y nunca se llenaba con nada.
+// Ahora muestra lo único que hay que resolver antes de mirar cualquier número.
+function renderDashBanner(m){
+  const el=document.getElementById('dash-banner');
+  if(!el) return;
+  const caja=(cls,ico,html)=>`<div class="banner ${cls}" style="margin-bottom:10px"><i class="ti ${ico}" style="flex-shrink:0"></i><div>${html}</div></div>`;
+
+  // Sin tipo de cambio TODO se muestra en $0: es lo primero que hay que arreglar.
+  if(!getFx()){
+    el.innerHTML=caja('err','ti-alert-triangle',
+      '<strong>Falta el tipo de cambio.</strong> Sin él todos los importes en dólares se '+
+      'muestran en $0, incluida la ganancia. Cargalo en '+
+      '<button class="btn sm" onclick="showPanelByName(\'settings\')">Config</button>');
+    return;
+  }
+  if(!m.orders.length){
+    el.innerHTML=caja('info','ti-upload',
+      '<strong>'+cur+' está vacío.</strong> Se empieza subiendo el Excel de costos, que es el '+
+      'que crea los pedidos. Después las ventas de Shopify y por último el reporte de FedEx. '+
+      '<button class="btn sm" onclick="showPanelByName(\'orders\')">Ir a Pedidos</button>');
+    return;
+  }
+  el.innerHTML='';
+}
+
 function sv2(id,txt,val){
   const el=document.getElementById(id);
   el.textContent=txt;
@@ -1549,11 +1779,43 @@ function sv2(id,txt,val){
 function renderOrders(){
   const m=gm();
   const tb=document.getElementById('orders-tb');
+  const th=document.getElementById('orders-th');
+  if(!tb) return;
+  renderSteps(m);
+
+  if(th){
+    th.innerHTML = '<tr>'+ORD_COLS.map((c,ci)=>{
+      if(ci===0) return '<th style="width:30px;text-align:center"><input type="checkbox" id="orders-chk-all" onclick="toggleAllOrders(this.checked)" title="Seleccionar todos" aria-label="Seleccionar todos los pedidos"></th>';
+      if(!c.sort) return '<th></th>';
+      const act = ordSort.field===c.sort;
+      const ar = act ? `<span class="sort-ar">${ordSort.dir>0?'▲':'▼'}</span>` : '';
+      return `<th class="sortable" onclick="sortOrders('${c.sort}')" title="Ordenar por ${c.lbl}">${c.lbl}${ar}</th>`;
+    }).join('')+'</tr>';
+  }
+
+  const cnt=document.getElementById('ord-count');
   if(!m.orders.length){
-    tb.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text2);padding:18px">Sin pedidos. Agregá uno arriba.</td></tr>';
+    tb.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text2);padding:22px 14px;line-height:1.6">'+
+      '<strong>Este mes está vacío.</strong><br>Se empieza subiendo el <strong>Excel de costos</strong>, que es el que crea los pedidos.'+
+      '<div style="margin-top:9px"><button class="btn primary" onclick="document.getElementById(\'csv-imp\').click()"><i class="ti ti-file-spreadsheet"></i> Subir Excel de costos</button></div>'+
+      '</td></tr>';
+    if(cnt) cnt.textContent='';
     updateBulkBar(); return;
   }
-  tb.innerHTML=m.orders.map((o,i)=>{
+
+  const vista = ordersView(m);
+  if(cnt) cnt.textContent = vista.length===m.orders.length
+    ? m.orders.length+' pedidos'
+    : vista.length+' de '+m.orders.length;
+
+  if(!vista.length){
+    tb.innerHTML='<tr><td colspan="12" style="text-align:center;color:var(--text2);padding:18px">'+
+      'Ningún pedido coincide con la búsqueda o el filtro.'+
+      ' <button class="btn sm" onclick="setOrdQuery(\'\');document.getElementById(\'ord-q\').value=\'\';setOrdFilter(\'todos\')">Limpiar</button></td></tr>';
+    updateBulkBar(); return;
+  }
+
+  tb.innerHTML=vista.map(({o,i})=>{
     const pr=calcProfit(o);
     const u=orderUSD(o);
     const st=orderStatus(o);
@@ -1567,23 +1829,252 @@ function renderOrders(){
     const attrNum=numRaw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
     const delNum=numRaw.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     const arsTip=v=>'$'+(parseFloat(v)||0).toLocaleString('es-AR')+' ARS — clic para editar';
-    const ed=f=>`onclick="editOrderField(${i},'${delNum}','${f}')"`;
+
+    // Celda editable: si es la que se está editando, muestra el input; si no, el valor.
+    const cel=(field,lbl,contenido,extra)=>{
+      const editando = editingCell && orderKey(editingCell.num)===orderKey(o.num) && editingCell.field===field;
+      if(editando){
+        const v=(o[field]==null?'':String(o[field])).replace(/"/g,'&quot;');
+        return `<td data-lbl="${lbl}" style="padding:2px 4px"><input class="cell-input" id="cell-edit" value="${v}"
+          onkeydown="cellKey(event)" onblur="commitCell()" aria-label="${ORDER_FIELDS[field].label}"></td>`;
+      }
+      return `<td data-lbl="${lbl}" class="editable-cell" onclick="beginCell('${delNum}','${field}')" ${extra||''}>${contenido} <i class="ti ti-pencil edit-pencil"></i></td>`;
+    };
+
     return`<tr>
-      <td style="text-align:center"><input type="checkbox" class="ord-chk" data-num="${attrNum}" onchange="updateBulkBar()" title="Seleccionar para borrado múltiple"></td>
-      <td class="editable-cell" ${ed('num')} title="Clic para editar el número de pedido"><strong>${o.num}</strong>${o.notes?`<div style="font-size:10px;color:var(--text2)">${o.notes}</div>`:''}</td>
-      <td class="editable-cell" ${ed('tracking')} title="Clic para editar el tracking" style="font-size:10px;font-family:monospace;color:var(--text2)">${trk}</td>
-      <td class="editable-cell" ${ed('bottles')} title="Cantidad de botellas — clic para editar. Se usa para estimar el envío que falta facturar." style="text-align:center;${!(parseInt(o.bottles,10)>0)?'color:var(--text3)':''}">${parseInt(o.bottles,10)>0?o.bottles:'—'} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td class="editable-cell" ${ed('salePrice')} title="Venta en USD — clic para editar">$${u.sale.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td class="editable-cell" ${ed('productCostARS')} title="${hasProd?arsTip(o.productCostARS):'Clic para editar'}" style="${!hasProd?'color:var(--text3)':''}">$${u.product.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td class="editable-cell" ${ed('shippingARS')} title="${hasShip?arsTip(o.shippingARS):'Clic para editar'}" style="${!hasShip?'color:var(--text3)':''}">$${u.shipping.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td class="editable-cell" ${ed('dutiesARS')} title="${hasDut?arsTip(o.dutiesARS):'Clic para editar'}" style="${!hasDut?'color:var(--text3)':''}">$${u.duties.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td class="editable-cell" ${ed('handling')} title="Depósito en USD — clic para editar">$${u.deposit.toFixed(2)} <i class="ti ti-pencil edit-pencil"></i></td>
-      <td style="font-weight:600;color:${pr>=0?'var(--ok)':'var(--err)'}">$${pr.toFixed(2)}</td>
-      <td><span class="dot ${dc}"></span>${sl}</td>
-      <td style="white-space:nowrap"><button class="btn sm" onclick="moveOrderToMonth(${i},'${delNum}')" title="Mover a otro mes"><i class="ti ti-calendar-share"></i></button> <button class="btn sm danger" onclick="delOrder(${i},'${delNum}')" title="Borrar este pedido"><i class="ti ti-trash"></i></button></td>
+      <td data-lbl="" style="text-align:center"><input type="checkbox" class="ord-chk" data-num="${attrNum}" onchange="updateBulkBar()" aria-label="Seleccionar el pedido ${attrNum}"></td>
+      ${cel('num','Pedido',`<strong>${o.num}</strong>${o.notes?`<div style="font-size:10px;color:var(--text2)">${o.notes}</div>`:''}`,'title="Clic para editar el número de pedido"')}
+      ${cel('tracking','Tracking',trk,'title="Clic para editar el tracking" style="font-size:10px;font-family:monospace;color:var(--text2)"')}
+      ${cel('bottles','Botellas',(parseInt(o.bottles,10)>0?o.bottles:'—'),`title="Cantidad de botellas — se usa para estimar el envío" style="text-align:center;${!(parseInt(o.bottles,10)>0)?'color:var(--text3)':''}"`)}
+      ${cel('salePrice','Venta','$'+u.sale.toFixed(2),'title="Venta en USD"')}
+      ${cel('productCostARS','Producto','$'+u.product.toFixed(2),`title="${hasProd?arsTip(o.productCostARS):'Clic para editar'}" style="${!hasProd?'color:var(--text3)':''}"`)}
+      ${cel('shippingARS','Envío','$'+u.shipping.toFixed(2),`title="${hasShip?arsTip(o.shippingARS):'Clic para editar'}" style="${!hasShip?'color:var(--text3)':''}"`)}
+      ${cel('dutiesARS','Duties','$'+u.duties.toFixed(2),`title="${hasDut?arsTip(o.dutiesARS):'Clic para editar'}" style="${!hasDut?'color:var(--text3)':''}"`)}
+      ${cel('handling','Depósito','$'+u.deposit.toFixed(2),'title="Depósito en USD"')}
+      <td data-lbl="Ganancia" style="font-weight:600;color:${pr>=0?'var(--ok)':'var(--err)'}">$${pr.toFixed(2)}</td>
+      <td data-lbl="Estado"><span class="dot ${dc}"></span>${sl}</td>
+      <td data-lbl="" style="white-space:nowrap"><button class="btn sm" onclick="moveOrderToMonth(${i},'${delNum}')" title="Mover a otro mes" aria-label="Mover el pedido ${attrNum} a otro mes"><i class="ti ti-calendar-share"></i></button> <button class="btn sm danger" onclick="delOrder(${i},'${delNum}')" title="Borrar este pedido" aria-label="Borrar el pedido ${attrNum}"><i class="ti ti-trash"></i></button></td>
     </tr>`;
   }).join('');
   updateBulkBar();
+}
+
+// ===== EDICIÓN DENTRO DE LA CELDA =====
+// Antes cada campo abría un prompt(): corregir un pedido eran cuatro popups en fila
+// sin ver el resto de la fila. Ahora la celda se convierte en un input: Enter confirma,
+// Escape cancela y Tab pasa al campo siguiente.
+let editingCell = null;   // {num, field}
+const CELL_ORDER = ['num','tracking','bottles','salePrice','productCostARS','shippingARS','dutiesARS','handling'];
+
+function beginCell(num, field){
+  if(!ORDER_FIELDS[field]) return;
+  editingCell = { num, field };
+  renderOrders();
+  const inp=document.getElementById('cell-edit');
+  if(inp && inp.focus){ inp.focus(); if(inp.select) inp.select(); }
+}
+function cancelCell(){ editingCell=null; renderOrders(); }
+
+function commitCell(mover){
+  if(!editingCell) return;
+  const inp=document.getElementById('cell-edit');
+  const raw= inp ? inp.value : null;
+  const { num, field } = editingCell;
+  editingCell=null;
+  if(raw!==null){
+    const r=setOrderField(num, field, raw);
+    if(!r.ok && r.msg) notify(r.msg,'err');
+  }
+  if(mover){
+    const idx=CELL_ORDER.indexOf(field);
+    const sig=CELL_ORDER[idx+(mover>0?1:-1)];
+    if(sig){ beginCell(num, sig); return; }
+  }
+  schedSave(); renderOrders(); renderDashboard();
+}
+
+function cellKey(ev){
+  if(ev.key==='Enter'){ ev.preventDefault(); commitCell(); }
+  else if(ev.key==='Escape'){ ev.preventDefault(); cancelCell(); }
+  else if(ev.key==='Tab'){ ev.preventDefault(); commitCell(ev.shiftKey?-1:1); }
+}
+
+
+// ===== HISTORICO =====
+// Los totales de un mes, con la misma cuenta que hace el dashboard.
+function monthTotals(mk){
+  const mes = (S.months||{})[mk] || { orders:[], expenses:[] };
+  let sales=0, costs=0;
+  (mes.orders||[]).forEach(o=>{
+    const u=orderUSD(o);
+    sales += u.sale;
+    costs += u.product + u.shipping + u.duties + u.deposit;
+  });
+  const exp = (mes.expenses||[]).reduce((a,e)=>a+(parseFloat(e.amount)||0),0);
+  const net = sales - costs - exp;
+  return { mk, n:(mes.orders||[]).length, sales, costs, exp, net,
+           margin: sales>0 ? net/sales*100 : 0 };
+}
+
+function renderHistory(){
+  const el=document.getElementById('hist-tbl');
+  if(!el) return;
+  const meses = Object.keys(S.months||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort();
+  const filas = meses.map(monthTotals).filter(f=>f.n>0 || f.exp>0);
+
+  if(!filas.length){
+    el.innerHTML='<tbody><tr><td style="padding:20px;text-align:center;color:var(--text2)">'+
+      'Todavía no hay meses con datos cargados.</td></tr></tbody>';
+    return;
+  }
+
+  const tope = Math.max(...filas.map(f=>Math.abs(f.net)), 1);
+  const d=n=>'$'+n.toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const NOM=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  const nombre=mk=>{ const [y,mm]=mk.split('-'); return NOM[parseInt(mm,10)-1]+' '+y; };
+
+  const tot = filas.reduce((a,f)=>({
+    n:a.n+f.n, sales:a.sales+f.sales, costs:a.costs+f.costs, exp:a.exp+f.exp, net:a.net+f.net
+  }), {n:0,sales:0,costs:0,exp:0,net:0});
+  tot.margin = tot.sales>0 ? tot.net/tot.sales*100 : 0;
+
+  const barra = net => {
+    const w = Math.round(Math.abs(net)/tope*100);
+    const c = net>=0 ? 'var(--ok)' : 'var(--err)';
+    return `<span class="hbar" style="width:${Math.max(w,2)}%;background:${c}"></span>`;
+  };
+
+  el.innerHTML =
+    '<thead><tr>'+
+      '<th>Mes</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Ventas</th>'+
+      '<th style="text-align:right">Costos</th><th style="text-align:right">Gastos</th>'+
+      '<th style="text-align:right">Ganancia</th><th style="text-align:right">Margen</th>'+
+      '<th style="width:110px"></th>'+
+    '</tr></thead><tbody>'+
+    filas.map(f=>`<tr class="${f.mk===cur?'cur':''}">
+      <td data-lbl="Mes"><button class="btn sm" style="padding:2px 7px" onclick="irAlMes('${f.mk}')" title="Ver ${nombre(f.mk)}">${nombre(f.mk)}</button></td>
+      <td data-lbl="Pedidos" style="text-align:right">${f.n}</td>
+      <td data-lbl="Ventas" style="text-align:right">${d(f.sales)}</td>
+      <td data-lbl="Costos" style="text-align:right">${d(f.costs)}</td>
+      <td data-lbl="Gastos" style="text-align:right">${d(f.exp)}</td>
+      <td data-lbl="Ganancia" style="text-align:right" class="${f.net>=0?'pos':'neg'}">${d(f.net)}</td>
+      <td data-lbl="Margen" style="text-align:right" class="${f.net>=0?'pos':'neg'}">${f.margin.toFixed(1)}%</td>
+      <td data-lbl=""><span class="hbar-wrap">${barra(f.net)}</span></td>
+    </tr>`).join('')+
+    `<tr class="tot">
+      <td data-lbl="">Total ${filas.length} mes${filas.length>1?'es':''}</td>
+      <td data-lbl="Pedidos" style="text-align:right">${tot.n}</td>
+      <td data-lbl="Ventas" style="text-align:right">${d(tot.sales)}</td>
+      <td data-lbl="Costos" style="text-align:right">${d(tot.costs)}</td>
+      <td data-lbl="Gastos" style="text-align:right">${d(tot.exp)}</td>
+      <td data-lbl="Ganancia" style="text-align:right" class="${tot.net>=0?'pos':'neg'}">${d(tot.net)}</td>
+      <td data-lbl="Margen" style="text-align:right" class="${tot.net>=0?'pos':'neg'}">${tot.margin.toFixed(1)}%</td>
+      <td data-lbl=""></td>
+    </tr></tbody>`;
+}
+
+function irAlMes(mk){
+  cur=mk;
+  const sel=document.getElementById('monthSel');
+  if(sel) sel.value=mk;
+  showPanelByName('dashboard');
+}
+
+// ===== BUSCAR, FILTRAR Y ORDENAR =====
+// Con 100+ pedidos por mes, encontrar uno era scrollear. El estado vive acá y
+// no se guarda: es una vista, no un dato.
+let ordQuery = '';
+let ordFilter = 'todos';
+let ordSort = { field:'', dir:1 };
+
+function setOrdQuery(v){ ordQuery = String(v||'').trim().toLowerCase(); renderOrders(); }
+function setOrdFilter(f){
+  ordFilter = f;
+  ['todos','incompletos','sinenviar','sincosto'].forEach(k=>{
+    const b=document.getElementById('fc-'+(k==='sinenviar'?'sinenviar':k==='sincosto'?'sincosto':k));
+    if(b) b.className='fchip'+(k===f?' on':'');
+  });
+  renderOrders();
+}
+function sortOrders(field){
+  if(ordSort.field===field) ordSort.dir = -ordSort.dir;
+  else ordSort = { field, dir:1 };
+  renderOrders();
+}
+
+const ORD_COLS = [
+  { k:'',        lbl:'',             sort:null },
+  { k:'num',     lbl:'Pedido',       sort:'num' },
+  { k:'trk',     lbl:'Tracking',     sort:'tracking' },
+  { k:'bot',     lbl:'Bot.',         sort:'bottles' },
+  { k:'sale',    lbl:'Venta USD',    sort:'sale' },
+  { k:'prod',    lbl:'Prod. USD',    sort:'product' },
+  { k:'ship',    lbl:'Envío USD',    sort:'shipping' },
+  { k:'dut',     lbl:'Duties USD',   sort:'duties' },
+  { k:'dep',     lbl:'Dep. USD',     sort:'deposit' },
+  { k:'profit',  lbl:'Ganancia USD', sort:'profit' },
+  { k:'st',      lbl:'Estado',       sort:'status' },
+  { k:'acc',     lbl:'',             sort:null }
+];
+
+// Devuelve los pedidos a mostrar, cada uno con su índice REAL en el arreglo,
+// para que borrar y editar sigan apuntando al pedido correcto.
+function ordersView(m){
+  let v = m.orders.map((o,i)=>({o,i}));
+
+  if(ordQuery){
+    v = v.filter(({o})=>{
+      const campos = [o.num, o.tracking, o.notes].map(x=>String(x==null?'':x).toLowerCase());
+      return campos.some(c=>c.includes(ordQuery));
+    });
+  }
+  if(ordFilter==='incompletos')      v = v.filter(({o})=>orderStatus(o)!=='complete');
+  else if(ordFilter==='sinenviar')   v = v.filter(({o})=>sinEnviar(o));
+  else if(ordFilter==='sincosto')    v = v.filter(({o})=>faltaProducto(o));
+
+  if(ordSort.field){
+    const val = o => {
+      const u = orderUSD(o);
+      switch(ordSort.field){
+        case 'num':      return orderKey(o.num);
+        case 'tracking': return String(o.tracking||'');
+        case 'bottles':  return parseInt(o.bottles,10)||0;
+        case 'sale':     return u.sale;
+        case 'product':  return u.product;
+        case 'shipping': return u.shipping;
+        case 'duties':   return u.duties;
+        case 'deposit':  return u.deposit;
+        case 'profit':   return calcProfit(o);
+        case 'status':   return {complete:0,partial:1,empty:2}[orderStatus(o)];
+        default:         return 0;
+      }
+    };
+    v.sort((a,b)=>{
+      const x=val(a.o), y=val(b.o);
+      if(typeof x==='number' && typeof y==='number') return (x-y)*ordSort.dir;
+      return String(x).localeCompare(String(y),'es',{numeric:true})*ordSort.dir;
+    });
+  }
+  return v;
+}
+
+// ===== PROGRESO DEL MES =====
+// El orden Costos -> Ventas -> FedEx es la regla que rompe todo si se invierte,
+// y antes solo aparecía dentro de un mensaje de error. Ahora está siempre a la vista.
+function renderSteps(m){
+  const el=document.getElementById('ord-steps');
+  if(!el) return;
+  const n=m.orders.length;
+  const conVenta=m.orders.filter(o=>tieneVenta(o)).length;
+  const conEnvio=m.orders.filter(o=>parseFloat(o.shippingARS)>0).length;
+  const paso=(ok,txt,det)=>
+    `<div class="step ${ok?'done':'todo'}"><i class="ti ${ok?'ti-circle-check-filled':'ti-circle-dashed'} s-ico"></i>`+
+    `<span>${txt}${det?` <b class="s-n">${det}</b>`:''}</span></div>`;
+  el.innerHTML =
+    `<div class="step" style="font-weight:600;color:var(--text)">${cur}</div>`+
+    paso(n>0,           '1. Costos', n?n+' pedidos':'pendiente')+
+    paso(conVenta>0,    '2. Ventas', n?conVenta+' de '+n:'') +
+    paso(conEnvio>0,    '3. FedEx',  n?conEnvio+' de '+n:'');
 }
 
 // ===== SELECCIÓN MÚLTIPLE DE PEDIDOS =====
@@ -1617,7 +2108,7 @@ function delSelectedOrders(){
   const antes=m.orders.length;
   m.orders=m.orders.filter(o=>!keys.has(orderKey(o.num)));
   schedSave(); renderOrders(); renderDashboard();
-  alert('✓ '+(antes-m.orders.length)+' pedidos eliminados.');
+  notify('✓ '+(antes-m.orders.length)+' pedidos eliminados.');
 }
 
 // ===== EDICIÓN DE CUALQUIER CAMPO DEL PEDIDO =====
@@ -1636,6 +2127,47 @@ const ORDER_FIELDS = {
   handling:       { label:'depósito',           kind:'usd'  }
 };
 
+// Valida y escribe un campo del pedido EN SU MONEDA NATIVA. Es el único lugar donde
+// se decide si un valor es válido: lo usan tanto la edición dentro de la celda como
+// el editor por diálogo. Devuelve {ok, msg}.
+function setOrderField(num, field, raw){
+  const spec = ORDER_FIELDS[field];
+  if(!spec) return { ok:false };
+  const hit = findOrderAnywhere(num);
+  if(!hit) return { ok:false, msg:'Ese pedido ya no existe.' };
+  const o = hit.o;
+  const val = (raw==null ? '' : String(raw));
+
+  if(spec.kind==='text'){
+    const limpio = val.trim();
+    if(field==='num'){
+      if(!limpio) return { ok:false, msg:'El número de pedido no puede quedar vacío.' };
+      const dup = (hit.arr||[]).find(x => x!==o && orderKey(x.num)===orderKey(limpio));
+      if(dup) return { ok:false, msg:'Ya existe el pedido '+dup.num+' en este mes. Usá otro número.' };
+    }
+    o[field] = limpio;
+    return { ok:true };
+  }
+
+  if(spec.kind==='int'){
+    if(val.trim()===''){ o[field]=''; return { ok:true }; }
+    const n = parseInt(val.replace(/[^0-9]/g,''),10);
+    if(isNaN(n) || n<0) return { ok:false, msg:'Cantidad inválida. Ingresá un número entero de botellas.' };
+    o[field] = String(n);
+    return { ok:true };
+  }
+
+  // usd | ars
+  if(val.trim()===''){ o[field]=''; return { ok:true }; }
+  const n = parseFlexibleNumber(val.trim());
+  if(n===null || isNaN(n) || n<0)
+    return { ok:false, msg:'Monto inválido. Ingresá un número en '+(spec.kind==='ars'?'pesos':'USD')+'.' };
+  o[field] = n.toFixed(2);
+  return { ok:true };
+}
+
+// Editor por diálogo. Queda como camino alternativo (y es el que usan las pruebas);
+// en la pantalla se edita dentro de la celda.
 function editOrderField(i, num, field){
   const m=gm();
   let idx=i;
@@ -1643,74 +2175,46 @@ function editOrderField(i, num, field){
     idx=m.orders.findIndex(o=>orderKey(o.num)===orderKey(num));
   }
   const o=m.orders[idx];
-  if(!o){ alert('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
+  if(!o){ notify('Ese pedido ya no existe.','err'); renderOrders(); renderDashboard(); return; }
   const spec=ORDER_FIELDS[field];
   if(!spec) return;
   const actual = o[field]==null ? '' : String(o[field]);
 
+  let msg, defecto = actual;
   if(spec.kind==='text'){
-    const val=prompt('Editar '+spec.label+' del pedido '+o.num+':', actual);
-    if(val===null) return;
-    const limpio=val.trim();
-    if(field==='num'){
-      if(!limpio){ alert('El número de pedido no puede quedar vacío.'); return; }
-      const dup=m.orders.find(x=>x!==o && orderKey(x.num)===orderKey(limpio));
-      if(dup){ alert('Ya existe el pedido '+dup.num+' en este mes. Usá otro número.'); return; }
-    }
-    o[field]=limpio;
-
+    msg = 'Editar '+spec.label+' del pedido '+o.num+':';
   } else if(spec.kind==='int'){
-    const msg='Editar '+spec.label+' del pedido '+o.num+'\n\n'+
+    msg = 'Editar '+spec.label+' del pedido '+o.num+'\n\n'+
       'Se usa para estimar el costo de envío mientras no llegue la factura de FedEx.\n'+
       (actual!=='' ? 'Valor actual: '+actual : 'Sin valor cargado.')+
       '\n\n(Dejalo vacío para borrarlo)';
-    const val=prompt(msg, actual);
-    if(val===null) return;
-    if(val.trim()===''){ o[field]=''; }
-    else{
-      const n=parseInt(val.replace(/[^0-9]/g,''),10);
-      if(isNaN(n)||n<0){ alert('Cantidad inválida. Ingresá un número entero de botellas.'); return; }
-      o[field]=String(n);
-    }
-
   } else if(spec.kind==='usd'){
-    const msg='Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en USD.\n'+
+    msg = 'Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en USD.\n'+
       (actual!=='' ? 'Valor actual: $'+(parseFloat(actual)||0).toFixed(2)+' USD' : 'Sin valor cargado.')+
       '\n\n(Dejalo vacío para borrar el valor)';
-    const val=prompt(msg, actual);
-    if(val===null) return;
-    if(val.trim()===''){ o[field]=''; }
-    else{
-      const n=parseFlexibleNumber(val.trim());
-      if(n===null||isNaN(n)||n<0){ alert('Monto inválido. Ingresá un número en USD.'); return; }
-      o[field]=n.toFixed(2);
-    }
-
-  } else { // ars
+  } else {
     const fx=getFx();
     const actARS=parseFloat(actual)||0;
-    const msg='Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en PESOS (ARS).\n'+
+    msg = 'Editar '+spec.label+' del pedido '+o.num+'\n\nIngresá el monto en PESOS (ARS).\n'+
       (actARS>0
         ? 'Valor actual: $'+actARS.toLocaleString('es-AR')+' ARS'+(fx>0?' (= $'+(actARS/fx).toFixed(2)+' USD al cambio $'+fx+')':' — falta configurar el tipo de cambio')
         : 'Sin valor cargado.')+
       '\n\n(Dejalo vacío para borrar el valor)';
-    const val=prompt(msg, actARS>0?actARS:'');
-    if(val===null) return;
-    if(val.trim()===''){ o[field]=''; }
-    else{
-      const n=parseFlexibleNumber(val.trim());
-      if(n===null||isNaN(n)||n<0){ alert('Monto inválido. Ingresá un número en pesos.'); return; }
-      o[field]=n.toFixed(2);
-    }
+    defecto = actARS>0 ? actARS : '';
   }
+
+  const val=prompt(msg, defecto);
+  if(val===null) return;
+  const r=setOrderField(o.num, field, val);
+  if(!r.ok){ if(r.msg) notify(r.msg,'err'); return; }
   schedSave(); renderOrders(); renderDashboard();
 }
 
 function addOrder(){
   const num=document.getElementById('o-num').value.trim();
-  if(!num){ alert('Ingresá el número de pedido'); return; }
+  if(!num){ notify('Ingresá el número de pedido'); return; }
   const dup=gm().orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(num));
-  if(dup){ alert('Ya existe el pedido '+dup.num+' en este mes. Editalo en la tabla o usá otro número.'); return; }
+  if(dup){ notify('Ya existe el pedido '+dup.num+' en este mes. Editalo en la tabla o usá otro número.'); return; }
   const dep=document.getElementById('o-dep').value||localStorage.getItem('aw_dep')||'3.25';
   gm().orders.push({
     num, tracking:document.getElementById('o-trk').value.trim(),
@@ -1737,24 +2241,24 @@ function moveOrderToMonth(i, num){
     idx = m.orders.findIndex(o => orderKey(o.num) === orderKey(num));
   }
   const o = m.orders[idx];
-  if(!o){ alert('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
+  if(!o){ notify('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
 
   const destino = prompt('Mover el pedido '+o.num+' a otro mes.\n\n'+
     'Escribí el mes destino como AAAA-MM (por ejemplo 2026-10).\n'+
     'Se lleva la venta, el costo de productos, envío, duties y notas.', cur);
   if(destino === null) return;
   const mk = destino.trim();
-  if(!/^\d{4}-\d{2}$/.test(mk)){ alert('Formato inválido. Usá AAAA-MM, por ejemplo 2026-10.'); return; }
-  if(mk === cur){ alert('El pedido ya está en '+cur+'.'); return; }
+  if(!/^\d{4}-\d{2}$/.test(mk)){ notify('Formato inválido. Usá AAAA-MM, por ejemplo 2026-10.'); return; }
+  if(mk === cur){ notify('El pedido ya está en '+cur+'.'); return; }
 
   if(!S.months[mk]) S.months[mk] = { orders:[], expenses:[], fxHist:[] };
   const choque = (S.months[mk].orders||[]).find(x => orderKey(x.num) === orderKey(o.num));
-  if(choque){ alert('En '+mk+' ya existe el pedido '+choque.num+'.\n\nBorrá ese o cambiale el número antes de mover este.'); return; }
+  if(choque){ notify('En '+mk+' ya existe el pedido '+choque.num+'.\n\nBorrá ese o cambiale el número antes de mover este.'); return; }
 
   m.orders.splice(idx, 1);
   S.months[mk].orders.push(o);
   schedSave(); buildMonthSelector(); renderAll();
-  alert('✓ Pedido '+o.num+' movido a '+mk+'.\n\nSe fue con su venta y sus costos. Cambiá de mes para verlo.');
+  notify('✓ Pedido '+o.num+' movido a '+mk+'.\n\nSe fue con su venta y sus costos. Cambiá de mes para verlo.');
 }
 
 // Borra por identidad: si el índice ya no apunta al pedido que se ve en pantalla
@@ -1765,7 +2269,7 @@ function delOrder(i, num){
   if(num !== undefined && (!m.orders[idx] || orderKey(m.orders[idx].num) !== orderKey(num))){
     idx = m.orders.findIndex(o => orderKey(o.num) === orderKey(num));
   }
-  if(idx < 0 || !m.orders[idx]){ alert('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
+  if(idx < 0 || !m.orders[idx]){ notify('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
   if(!confirm('¿Eliminás el pedido '+m.orders[idx].num+'?')) return;
   m.orders.splice(idx,1);
   schedSave(); renderOrders(); renderDashboard();
@@ -1792,15 +2296,15 @@ function renderExpenses(){
 function editExpense(i){
   const m=gm();
   const e=m.expenses[i];
-  if(!e){ alert('Ese gasto ya no existe.'); renderExpenses(); return; }
+  if(!e){ notify('Ese gasto ya no existe.'); renderExpenses(); return; }
   const desc=prompt('Descripción del gasto:', e.desc==null?'':String(e.desc));
   if(desc===null) return;
-  if(!desc.trim()){ alert('La descripción no puede quedar vacía.'); return; }
+  if(!desc.trim()){ notify('La descripción no puede quedar vacía.'); return; }
   const cur=e.amount==null?'':String(e.amount);
   const amt=prompt('Monto del gasto en USD:\n\nValor actual: $'+(parseFloat(cur)||0).toFixed(2), cur);
   if(amt===null) return;
   const n=parseFlexibleNumber(amt.trim());
-  if(n===null||isNaN(n)||n<0){ alert('Monto inválido. Ingresá un número en USD.'); return; }
+  if(n===null||isNaN(n)||n<0){ notify('Monto inválido. Ingresá un número en USD.'); return; }
   e.desc=desc.trim();
   e.amount=n.toFixed(2);
   schedSave(); renderExpenses(); renderDashboard();
@@ -1810,19 +2314,50 @@ function addExpense(){
   const cust=document.getElementById('exp-cust').value.trim();
   const desc=cat==='Otro'?cust:cat;
   const amount=document.getElementById('exp-amt').value;
-  if(!desc||!amount){ alert('Completá categoría y monto'); return; }
+  if(!desc||!amount){ notify('Completá categoría y monto'); return; }
   gm().expenses.push({desc,amount});
   schedSave(); renderExpenses(); renderDashboard();
   document.getElementById('exp-amt').value='';
 }
-function delExp(i){ gm().expenses.splice(i,1); schedSave(); renderExpenses(); renderDashboard(); }
+// Borrar no pide confirmación: frena de más para algo tan chico. En cambio deja
+// deshacerlo por unos segundos, que es más rápido y no pierde nada.
+function delExp(i){
+  const m=gm();
+  const e=m.expenses[i];
+  if(!e) return;
+  m.expenses.splice(i,1);
+  schedSave(); renderExpenses(); renderDashboard();
+  notify('Gasto eliminado: '+e.desc, 'warn', { label:'Deshacer', fn:()=>{
+    const mm=gm();
+    mm.expenses.splice(Math.min(i, mm.expenses.length), 0, e);
+    schedSave(); renderExpenses(); renderDashboard();
+    notify('✓ Gasto restaurado.','ok');
+  }});
+}
 function copyLastMonth(){
   const months=Object.keys(S.months).sort();
   const ci=months.indexOf(cur);
-  if(ci<=0||!S.months[months[ci-1]]?.expenses?.length){ alert('No hay gastos en el mes anterior'); return; }
-  if(!confirm('¿Copiás los gastos del mes anterior?'))return;
-  S.months[months[ci-1]].expenses.forEach(e=>gm().expenses.push({...e}));
+  if(ci<=0||!S.months[months[ci-1]]?.expenses?.length){ notify('No hay gastos en el mes anterior.','warn'); return; }
+  const origen=months[ci-1];
+  const m=gm();
+  // Antes esto solo hacía push: tocarlo dos veces dejaba cada gasto cargado por
+  // duplicado y bajaba la ganancia sin que se notara. Ahora se saltea lo que ya está.
+  const yaEsta = e => m.expenses.some(x =>
+    String(x.desc).trim().toLowerCase() === String(e.desc).trim().toLowerCase() &&
+    Math.abs((parseFloat(x.amount)||0) - (parseFloat(e.amount)||0)) < 0.005);
+  const nuevos = S.months[origen].expenses.filter(e => !yaEsta(e));
+  const repetidos = S.months[origen].expenses.length - nuevos.length;
+
+  if(!nuevos.length){
+    notify('Los '+repetidos+' gastos de '+origen+' ya estaban cargados en este mes. No se agregó nada.','warn');
+    return;
+  }
+  if(!confirm('¿Copiás '+nuevos.length+' gasto'+(nuevos.length>1?'s':'')+' de '+origen+'?'+
+      (repetidos?'\n\n'+repetidos+' ya estaban cargados y se saltean.':''))) return;
+  nuevos.forEach(e=>m.expenses.push({...e}));
   schedSave(); renderExpenses(); renderDashboard();
+  notify('✓ '+nuevos.length+' gastos copiados de '+origen+
+    (repetidos?'. '+repetidos+' ya estaban y no se duplicaron.':'.'),'ok');
 }
 
 // ===== FEDEX HISTORY =====
@@ -1993,7 +2528,7 @@ REGLAS FINALES:
   document.getElementById('fx-pdf').value='';
 
   if(!allEntries.length){
-    alert('No se extrajeron envíos.\n'+(errors.length?'Errores:\n'+errors.join('\n'):''));
+    notify('No se extrajeron envíos.\n'+(errors.length?'Errores:\n'+errors.join('\n'):''));
     return;
   }
 
@@ -2087,7 +2622,7 @@ REGLAS FINALES:
 }
 
 function openAwbModal(){
-  if(!pendingAwbs.length){ alert('No hay envíos para asignar'); return; }
+  if(!pendingAwbs.length){ notify('No hay envíos para asignar'); return; }
   const orders=gm().orders;
   document.getElementById('awb-assign').innerHTML=pendingAwbs.map((e,i)=>{
     const confCls=e.matchConfidence==='high'?'ok':e.matchConfidence==='medium'?'warn':'';
@@ -2128,8 +2663,8 @@ function importFedexReport(file){
   if(!file) return;
   document.getElementById('fx-report').value='';
   readTabularFile(file, (rows, err, sheetInfo) => {
-    if(err){ alert('Error: '+err); return; }
-    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+    if(err){ notify('Error: '+err); return; }
+    if(!rows||!rows.length){ notify('No se encontraron datos en el archivo.'); return; }
     lastFxReportSheetInfo = sheetInfo;
     processFxReportRows(rows, sheetInfo);
   });
@@ -2143,7 +2678,7 @@ function onFxReportSheetChange(newSheetName){
 }
 
 function processFxReportRows(rows, sheetInfo){
-  if(!rows||!rows.length){ alert('Esa hoja no tiene datos.'); return; }
+  if(!rows||!rows.length){ notify('Esa hoja no tiene datos.'); return; }
 
   const keys = Object.keys(rows[0]);
   // Detección flexible de columnas del reporte de FedEx Billing Online.
@@ -2165,7 +2700,7 @@ function processFxReportRows(rows, sheetInfo){
     if(!typeKey) faltan.push('• Tipo de factura   (Invoice Type)');
     if(!refKey)  faltan.push('• Referencia del remitente 1   (Shipper Reference 1)');
     if(!amtKey)  faltan.push('• Monto total guía aérea   (Air Waybill Total Amount)');
-    alert('A este reporte de FedEx le faltan columnas:\n\n'+faltan.join('\n')+
+    notify('A este reporte de FedEx le faltan columnas:\n\n'+faltan.join('\n')+
       '\n\nColumnas que sí trae el archivo:\n'+keys.join(', ')+
       '\n\nVolvé a exportar desde FedEx Billing Online con una plantilla que incluya esas columnas.\nEn la app, abrí "Cómo exportar el reporte desde FedEx" para el paso a paso.');
     return;
@@ -2230,7 +2765,7 @@ function processFxReportRows(rows, sheetInfo){
   });
 
   if(!pendingFxReport.length){
-    alert('El reporte no tiene ninguna línea usable.\n\n'+
+    notify('El reporte no tiene ninguna línea usable.\n\n'+
       'Cada línea necesita un monto y, además, número de pedido (Referencia del remitente 1) '+
       'o número de guía aérea.\n\n'+
       (awbKey ? '' : 'Este archivo no trae la columna "Número de guía aérea": agregala a la plantilla de FedEx y volvé a exportar.'));
@@ -2334,7 +2869,7 @@ function applyFedexReport(){
   document.getElementById('fx-report-preview').style.display='none';
   schedSave(); renderAll();
   const detalle = Object.keys(mesesTocados).sort().map(mk=>`   · ${mk}: ${mesesTocados[mk]} líneas`).join('\n');
-  alert(`✓ Reporte de FedEx aplicado:\n• ${applied} líneas cargadas a sus pedidos\n`+
+  notify(`✓ Reporte de FedEx aplicado:\n• ${applied} líneas cargadas a sus pedidos\n`+
     (Object.keys(mesesTocados).length ? `\nRepartidas por mes:\n${detalle}\n` : '')+
     `\n• ${noMatch} líneas sin pedido coincidente (se ignoraron)\n\nModo: ${replaceMode?'Reemplazar':'Sumar'}.`);
 }
@@ -2390,7 +2925,7 @@ function applyAwbs(){
   document.getElementById('fx-result').style.display='none';
   const modeUsed=document.querySelector('input[name="awb-mode"]:checked');
   const modeLabel=(!modeUsed||modeUsed.value==='replace')?'Modo REEMPLAZAR — los valores anteriores fueron pisados.':'Modo SUMAR — los valores fueron acumulados.';
-  alert(`✓ ${applied} envío(s) aplicados.\n${modeLabel}`);
+  notify(`✓ ${applied} envío(s) aplicados.\n${modeLabel}`);
 }
 
 // ===== EXPENSE IMAGE =====
@@ -2431,7 +2966,7 @@ Incluí TODOS los movimientos visibles, no omitas ninguno.`;
     catch(e){ throw new Error('La IA no pudo procesar el documento. Probá con una imagen más clara.'); }
     pendingTxs=parsed.transactions||[];
     openTxModal(parsed.source, parsed.period, parsed.currency);
-  }catch(err){ alert('Error: '+err.message); }
+  }catch(err){ notify('Error: '+err.message); }
   loader.classList.remove('on');
 }
 
@@ -2445,8 +2980,8 @@ function processExpenseCSV(file){
   document.getElementById('exp-csv').value='';
   readTabularFile(file, (rows, err, sheetInfo) => {
     loader.classList.remove('on');
-    if(err){ alert('Error: '+err); return; }
-    if(!rows||!rows.length){ alert('No se encontraron filas en el archivo.'); return; }
+    if(err){ notify('Error: '+err); return; }
+    if(!rows||!rows.length){ notify('No se encontraron filas en el archivo.'); return; }
     lastExpenseSheetInfo = sheetInfo;
     processExpenseRows(rows, file.name, sheetInfo);
   });
@@ -2462,7 +2997,7 @@ function onExpenseSheetChange(newSheetName){
 let lastExpenseFileName = '';
 
 function processExpenseRows(rows, fileName, sheetInfo){
-  if(!rows||!rows.length){ alert('Esa hoja no tiene datos.'); return; }
+  if(!rows||!rows.length){ notify('Esa hoja no tiene datos.'); return; }
   lastExpenseFileName = fileName;
   const keys=Object.keys(rows[0]);
   const descKey=keys.find(k=>/desc|concepto|detalle|nombre|detail|name|item/i.test(k))||keys[0];
@@ -2474,7 +3009,7 @@ function processExpenseRows(rows, fileName, sheetInfo){
     isLikelyBusiness:false,
     category:'Otro'
   })).filter(t=>t.amount>0);
-  if(!pendingTxs.length){ alert('No se encontraron filas con montos válidos.'); return; }
+  if(!pendingTxs.length){ notify('No se encontraron filas con montos válidos.'); return; }
   openTxModal(fileName, '', 'USD', sheetInfo, 'onExpenseSheetChange');
 }
 
@@ -2575,14 +3110,14 @@ function applyTxs(){
     }
   });
   schedSave(); closeOv('ov-txs'); renderExpenses(); renderDashboard();
-  if(added) alert(`✓ ${added} gasto${added!==1?'s':''} agregados al mes.`);
+  if(added) notify(`✓ ${added} gasto${added!==1?'s':''} agregados al mes.`);
 }
 
 // ===== CLAUDE KEY =====
 function saveClaudeKey(){
   // Strip all whitespace including invisible/non-breaking chars that break the key
   let k=document.getElementById('claude-key').value.replace(/[\s\u00A0\u200B-\u200D\uFEFF]/g,'');
-  if(!k){ alert('Ingresá la API key'); return; }
+  if(!k){ notify('Ingresá la API key'); return; }
   localStorage.setItem('aw_ckey',k);
   document.getElementById('claude-key').value=k;
   document.getElementById('claude-key-status').textContent='✓ API key guardada. Tocá "Probar conexión" para verificar.';
@@ -2606,8 +3141,8 @@ function saveCfg(key,inputId){
   localStorage.setItem('aw_'+key,v);
   // Recalculate everything — changing the exchange rate updates all USD displays
   renderAll();
-  if(key==='fx') alert('Tipo de cambio actualizado: $'+v+' ARS/USD.\nTodo el panel se recalculó en dólares.');
-  else alert('Guardado: '+v);
+  if(key==='fx') notify('Tipo de cambio actualizado: $'+v+' ARS/USD.\nTodo el panel se recalculó en dólares.');
+  else notify('Guardado: '+v);
 }
 
 // ===== EXPORT =====
@@ -2635,7 +3170,7 @@ function exportCSV(){
 function exportJSON(){ dl(new Blob([JSON.stringify(S,null,2)],{type:'application/json'}),'argewine_backup.json'); }
 function importJSON(file){
   const r=new FileReader();
-  r.onload=()=>{ try{ S=JSON.parse(r.result); migrateData(); buildMonthSelector(); schedSave(); changeMonth(); alert('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ alert('Error: '+e.message); } };
+  r.onload=()=>{ try{ S=JSON.parse(r.result); migrateData(); buildMonthSelector(); schedSave(); changeMonth(); notify('Datos importados ✓ (reemplazó todo lo anterior)'); }catch(e){ notify('Error: '+e.message); } };
   r.readAsText(file);
 }
 
@@ -2645,8 +3180,8 @@ function mergeJSON(file){
   r.onload=()=>{
     let imported;
     try{ imported=JSON.parse(r.result); }
-    catch(e){ alert('Error leyendo el archivo: '+e.message); return; }
-    if(!imported||!imported.months){ alert('El archivo no tiene el formato esperado.'); return; }
+    catch(e){ notify('Error leyendo el archivo: '+e.message); return; }
+    if(!imported||!imported.months){ notify('El archivo no tiene el formato esperado.'); return; }
 
     if(!S.months) S.months={};
     let mesesNuevos=0, mesesFusionados=0, pedidosAgregados=0, gastosAgregados=0;
@@ -2680,7 +3215,7 @@ function mergeJSON(file){
 
     migrateData(); buildMonthSelector();
     schedSave(); changeMonth();
-    alert(`✓ Combinación completa:\n`+
+    notify(`✓ Combinación completa:\n`+
       `• ${mesesNuevos} meses nuevos agregados\n`+
       `• ${mesesFusionados} meses existentes fusionados\n`+
       `• ${pedidosAgregados} pedidos agregados\n`+
@@ -2691,7 +3226,7 @@ function mergeJSON(file){
 }
 function clearMonthOrders(){
   const m = gm();
-  if(!m.orders.length){ alert('Este mes no tiene pedidos.'); return; }
+  if(!m.orders.length){ notify('Este mes no tiene pedidos.'); return; }
   if(!confirm('¿Borrás los '+m.orders.length+' pedidos de '+cur+'?\n\nLos gastos del mes NO se tocan. Podés volver a crearlos reimportando el CSV de costos.')) return;
   m.orders = [];
   schedSave(); renderAll();
@@ -2703,7 +3238,7 @@ function resetCostValues(){
   const m=gm();
   m.orders.forEach(o=>{ o.productCostARS=''; });
   schedSave(); renderAll();
-  alert('✓ Costo de productos limpiado. Envío y duties se mantuvieron. Reimportá el CSV de costos.');
+  notify('✓ Costo de productos limpiado. Envío y duties se mantuvieron. Reimportá el CSV de costos.');
 }
 
 
@@ -2712,7 +3247,7 @@ function resetFedexValues(){
   const m=gm();
   m.orders.forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
   schedSave(); renderAll();
-  alert('✓ Envío y duties limpiados en '+cur+'. Volvé a subir las facturas de FedEx con modo Reemplazar.');
+  notify('✓ Envío y duties limpiados en '+cur+'. Volvé a subir las facturas de FedEx con modo Reemplazar.');
 }
 
 function dl(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click(); }
@@ -2726,8 +3261,8 @@ function importCostCSV(file){
   if(!file) return;
   document.getElementById('csv-imp').value = '';
   readTabularFile(file, (rows, err, sheetInfo) => {
-    if(err){ alert('Error: '+err); return; }
-    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+    if(err){ notify('Error: '+err); return; }
+    if(!rows||!rows.length){ notify('No se encontraron datos en el archivo.'); return; }
     lastCostSheetInfo = sheetInfo;
     processCostRows(rows, sheetInfo);
   });
@@ -2741,7 +3276,7 @@ function onCostSheetChange(newSheetName){
 }
 
 function processCostRows(rows, sheetInfo){
-  if(!rows||!rows.length){ alert('Esa hoja no tiene datos.'); return; }
+  if(!rows||!rows.length){ notify('Esa hoja no tiene datos.'); return; }
 
   const dep = parseFloat(localStorage.getItem('aw_dep')) || 3.25;
   const fx = parseFloat(localStorage.getItem('aw_fx')) || 0;
@@ -2753,7 +3288,7 @@ function processCostRows(rows, sheetInfo){
   const costKey = keys.find(k=>/costo.*producto|producto.*costo|costo.*pesos|^costo$/i.test(k)) || keys.find(k=>/costo|pesos/i.test(k));
 
   if(!costKey){
-    alert('No se encontró la columna de costo. Columnas detectadas:\n'+keys.join(', ')+'\n\nEsperaba una columna como "Costo Productos (Pesos)".');
+    notify('No se encontró la columna de costo. Columnas detectadas:\n'+keys.join(', ')+'\n\nEsperaba una columna como "Costo Productos (Pesos)".');
     return;
   }
 
@@ -2767,7 +3302,7 @@ function processCostRows(rows, sheetInfo){
     pendingCSV.push({ num, tracking: trk, productCostARS: ars.toFixed(2), handling: dep.toFixed(2) });
   });
 
-  if(!pendingCSV.length){ alert('No se pudieron leer filas válidas. Verificá el formato.'); return; }
+  if(!pendingCSV.length){ notify('No se pudieron leer filas válidas. Verificá el formato.'); return; }
 
   const tbody = document.getElementById('csv-preview-body');
   tbody.innerHTML = pendingCSV.map(r => {
@@ -3015,7 +3550,7 @@ function applyCostCSV(){
   if(mode === 'replace') lines.push('• '+replaced+' pedidos pisados por completo');
   else if(mode === 'merge') lines.push('• '+updated+' pedidos con costo actualizado (se pisó el valor anterior)');
   if(enOtroMes) lines.push('• '+enOtroMes+' de esos pedidos viven en otro mes (vendidos antes de enviarse): se actualizaron ahí, no se duplicaron acá');
-  alert(lines.join('\n'));
+  notify(lines.join('\n'));
 }
 
 // ===== SHOPIFY SALES CSV IMPORT =====
@@ -3026,8 +3561,8 @@ function importShopifyCSV(file){
   if(!file) return;
   document.getElementById('shopify-imp').value = '';
   readTabularFile(file, (rows, err, sheetInfo) => {
-    if(err){ alert('Error: '+err); return; }
-    if(!rows||!rows.length){ alert('No se encontraron datos en el archivo.'); return; }
+    if(err){ notify('Error: '+err); return; }
+    if(!rows||!rows.length){ notify('No se encontraron datos en el archivo.'); return; }
     lastShopifySheetInfo = sheetInfo;
     processShopifyRows(rows, sheetInfo);
   });
@@ -3041,7 +3576,7 @@ function onShopifySheetChange(newSheetName){
 }
 
 function processShopifyRows(rows, sheetInfo){
-  if(!rows||!rows.length){ alert('Esa hoja no tiene datos.'); return; }
+  if(!rows||!rows.length){ notify('Esa hoja no tiene datos.'); return; }
 
   // Reconoce el export estándar (Name/Total) y el reporte en español (Nombre del pedido/Ventas totales)
   const firstRow = rows[0] || {};
@@ -3050,7 +3585,7 @@ function processShopifyRows(rows, sheetInfo){
   const totalKey = keys.find(k => /^total$/i.test(k.trim())) || keys.find(k => /ventas totales/i.test(k.trim())) || keys.find(k => /total/i.test(k.trim())) || keys.find(k => /ventas/i.test(k.trim()));
 
   if(!nameKey || !totalKey){
-    alert('No se reconocieron las columnas.\nColumnas encontradas: '+keys.join(', ')+'\n\nEsperaba "Name"/"Total" o "Nombre del pedido"/"Ventas totales".');
+    notify('No se reconocieron las columnas.\nColumnas encontradas: '+keys.join(', ')+'\n\nEsperaba "Name"/"Total" o "Nombre del pedido"/"Ventas totales".');
     return;
   }
 
@@ -3082,7 +3617,7 @@ function processShopifyRows(rows, sheetInfo){
     }
   });
 
-  if(!pendingShopify.length){ alert('No se encontraron pedidos con monto de venta en el archivo.'); return; }
+  if(!pendingShopify.length){ notify('No se encontraron pedidos con monto de venta en el archivo.'); return; }
 
   const m = gm();
   const tbody = document.getElementById('shopify-preview-body');
@@ -3128,9 +3663,9 @@ function applyShopifyCSV(){
   document.getElementById('shopify-preview').style.display = 'none';
   schedSave(); renderOrders(); renderDashboard();
   if(updated === 0){
-    alert(`⚠️ NINGÚN pedido se actualizó (0 de ${notFound}).\n\nEsto pasa cuando los pedidos del CSV todavía no existen en el sistema. Recordá el orden correcto:\n1º Importar el CSV/Excel de COSTOS (crea los pedidos)\n2º Recién ahí importar las VENTAS de Shopify (completa el monto)\n\nSi ya cargaste los costos y ves este mensaje, verificá que los números de pedido coincidan.`);
+    notify(`⚠️ NINGÚN pedido se actualizó (0 de ${notFound}).\n\nEsto pasa cuando los pedidos del CSV todavía no existen en el sistema. Recordá el orden correcto:\n1º Importar el CSV/Excel de COSTOS (crea los pedidos)\n2º Recién ahí importar las VENTAS de Shopify (completa el monto)\n\nSi ya cargaste los costos y ves este mensaje, verificá que los números de pedido coincidan.`);
   } else {
-    alert(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta`+
+    notify(`✓ Ventas completadas:\n• ${updated} pedidos actualizados con el monto de venta`+
       (enOtroMes?`\n• ${enOtroMes} de ellos viven en otro mes: se completaron ahí`:'')+
       `\n• ${notFound} pedidos del CSV no existían en el sistema`);
   }
