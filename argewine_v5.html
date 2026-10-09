@@ -314,13 +314,15 @@ textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v45</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v46</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
       <div class="save-indicator" id="save-ind"></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <button class="btn sm" id="btn-undo" onclick="undoLast()" disabled title="Nada para deshacer  (Ctrl+Z)" aria-label="Deshacer el último cambio"><i class="ti ti-arrow-back-up"></i></button>
+      <button class="btn sm" id="btn-redo" onclick="redoLast()" style="display:none" aria-label="Rehacer"><i class="ti ti-arrow-forward-up"></i></button>
       <select id="monthSel" onchange="changeMonth()" style="font-size:12px" aria-label="Mes que se está viendo"></select>
     </div>
   </div>
@@ -565,7 +567,7 @@ textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{
                 <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:left">Pedido</th>
                 <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:left">Tipo</th>
                 <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:right">Monto ARS</th>
-                <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:center">Match</th>
+                <th style="padding:4px 7px;border-bottom:1px solid var(--border);background:var(--bg2);text-align:left">Pedido</th>
               </tr></thead>
               <tbody id="fx-report-body"></tbody>
             </table>
@@ -1254,7 +1256,111 @@ function migrateData(){
 }
 // keepStamp=true: persiste sin tocar _lastModified. Se usa al adoptar la copia de Drive,
 // para no falsear que lo local es más nuevo que la nube.
-function sv(keepStamp){ if(!keepStamp) S._lastModified = Date.now(); try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){} }
+// ===== DESHACER / REHACER =====
+// Cada guardado deja atrás el estado anterior. Como todo cambio termina llamando a
+// sv(), alcanza con guardar acá la foto previa: no hace falta acordarse de pedir el
+// undo en cada función, que es justo donde se olvida.
+const UNDO_MAX = 15;
+let undoStack = [];           // fotos del estado ANTES de cada cambio
+let redoStack = [];
+let _lastSerialized = null;   // el estado tal como quedó en el último guardado
+let _undoReady = false;       // recién después del arranque: migrar no es un cambio del usuario
+let _pendingUndoLabel = '';   // qué se está por hacer, para poder nombrarlo al deshacer
+let _restoring = false;       // mientras se deshace/rehace, guardar NO es un cambio nuevo
+
+// Las funciones que cambian datos avisan qué están haciendo, para que el aviso de
+// deshacer diga algo útil en vez de "último cambio".
+function markUndo(label){ _pendingUndoLabel = label || ''; }
+
+function pushUndo(serialized, label){
+  undoStack.push({ s: serialized, label: label || 'último cambio' });
+  if(undoStack.length > UNDO_MAX) undoStack.shift();
+  redoStack = [];             // una rama nueva invalida lo que se había rehecho
+  refreshUndoUI();
+}
+
+function restoreSnapshot(serialized){
+  try{
+    S = JSON.parse(serialized);
+  }catch(e){ return false; }
+  localDirty = true;          // lo restaurado también tiene que subir a Drive
+  // Guardar sin empujar a la pila: si no, deshacer se registraba a sí mismo como un
+  // cambio y la segunda vez que se tocaba Ctrl+Z ya no retrocedía.
+  _restoring = true;
+  sv();
+  _restoring = false;
+  _lastSerialized = JSON.stringify(S);
+  buildMonthSelector();
+  const sel=document.getElementById('monthSel');
+  if(sel && S.months && !S.months[cur]){
+    const hay=Object.keys(S.months).sort();
+    if(hay.length){ cur=hay[hay.length-1]; sel.value=cur; }
+  }
+  renderAll();
+  schedSaveRemote();
+  return true;
+}
+
+// Sube a Drive sin volver a pisar la pila de deshacer.
+function schedSaveRemote(){
+  setSaveInd('saving','Guardando...');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    if(getToken()){ saveToDrive(); }
+    else { setSaveInd('saved','Guardado localmente'); }
+  }, 1500);
+}
+
+function undoLast(){
+  if(!undoStack.length){ notify('No hay nada para deshacer.','warn'); return; }
+  const paso = undoStack.pop();
+  const actual = JSON.stringify(S);
+  if(restoreSnapshot(paso.s)){
+    redoStack.push({ s: actual, label: paso.label });
+    if(redoStack.length > UNDO_MAX) redoStack.shift();
+    notify('↩ Deshecho: '+paso.label,'ok',{ label:'Rehacer', fn: redoLast });
+  }
+  refreshUndoUI();
+}
+
+function redoLast(){
+  if(!redoStack.length){ notify('No hay nada para rehacer.','warn'); return; }
+  const paso = redoStack.pop();
+  const actual = JSON.stringify(S);
+  if(restoreSnapshot(paso.s)){
+    undoStack.push({ s: actual, label: paso.label });
+    notify('↪ Rehecho: '+paso.label,'ok');
+  }
+  refreshUndoUI();
+}
+
+function refreshUndoUI(){
+  const b=document.getElementById('btn-undo');
+  if(b){
+    b.disabled = !undoStack.length;
+    b.title = undoStack.length
+      ? 'Deshacer: '+undoStack[undoStack.length-1].label+'  (Ctrl+Z)'
+      : 'Nada para deshacer  (Ctrl+Z)';
+  }
+  const r=document.getElementById('btn-redo');
+  if(r){
+    r.style.display = redoStack.length ? 'inline-flex' : 'none';
+    r.title = redoStack.length ? 'Rehacer: '+redoStack[redoStack.length-1].label+'  (Ctrl+Y)' : '';
+  }
+}
+
+function sv(keepStamp){
+  // keepStamp = adoptar la copia de Drive: no es un cambio del usuario, no va al undo.
+  if(!keepStamp){
+    if(_undoReady && !_restoring && _lastSerialized !== null){
+      pushUndo(_lastSerialized, _pendingUndoLabel);
+    }
+    _pendingUndoLabel = '';
+    S._lastModified = Date.now();
+  }
+  try{ localStorage.setItem(LS, JSON.stringify(S)); }catch(e){}
+  _lastSerialized = JSON.stringify(S);
+}
 function ld(){
   try{ const d=localStorage.getItem(LS); if(d) S=JSON.parse(d); }catch(e){}
   const k=localStorage.getItem('aw_ckey'); if(k) document.getElementById('claude-key').value=k;
@@ -1496,6 +1602,22 @@ function findOrderByAwb(orders, awb){
   const a = awbDigits(awb);
   if(!a) return undefined;
   return (orders||[]).find(o => awbDigits(o.tracking) === a);
+}
+
+// ===== ASIGNACIONES MANUALES DE GUÍA A PEDIDO =====
+// Cuando una guía no cruza sola (o cruza con el pedido equivocado) se asigna a mano
+// en el preview. Esa decisión se guarda en el estado: el próximo reporte que traiga
+// la misma guía ya sabe a qué pedido va, sin volver a tocarla.
+function awbMap(){
+  if(!S.awbMap || typeof S.awbMap !== 'object') S.awbMap = {};
+  return S.awbMap;
+}
+function recordarAsignacion(awb, orderNum){
+  const a = awbDigits(awb);
+  if(!a) return;
+  const m = awbMap();
+  if(orderNum) m[a] = String(orderNum);
+  else delete m[a];
 }
 
 // Todos los pedidos de todos los meses, con el mes al que pertenece cada uno.
@@ -2103,6 +2225,7 @@ function delSelectedOrders(){
   if(!nums.length) return;
   const lista=nums.slice(0,12).join(', ')+(nums.length>12?' y '+(nums.length-12)+' más':'');
   if(!confirm('¿Eliminás '+nums.length+' pedido'+(nums.length>1?'s':'')+' de '+cur+'?\n\n'+lista)) return;
+  markUndo('borrar '+nums.length+' pedidos');
   const keys=new Set(nums.map(orderKey));
   const m=gm();
   const antes=m.orders.length;
@@ -2137,6 +2260,7 @@ function setOrderField(num, field, raw){
   if(!hit) return { ok:false, msg:'Ese pedido ya no existe.' };
   const o = hit.o;
   const val = (raw==null ? '' : String(raw));
+  markUndo('editar '+spec.label+' del pedido '+o.num);
 
   if(spec.kind==='text'){
     const limpio = val.trim();
@@ -2216,6 +2340,7 @@ function addOrder(){
   const dup=gm().orders.find(o=>normalizeOrderNum(o.num)===normalizeOrderNum(num));
   if(dup){ notify('Ya existe el pedido '+dup.num+' en este mes. Editalo en la tabla o usá otro número.'); return; }
   const dep=document.getElementById('o-dep').value||localStorage.getItem('aw_dep')||'3.25';
+  markUndo('agregar el pedido '+num);
   gm().orders.push({
     num, tracking:document.getElementById('o-trk').value.trim(),
     salePrice:document.getElementById('o-sale').value,
@@ -2255,6 +2380,7 @@ function moveOrderToMonth(i, num){
   const choque = (S.months[mk].orders||[]).find(x => orderKey(x.num) === orderKey(o.num));
   if(choque){ notify('En '+mk+' ya existe el pedido '+choque.num+'.\n\nBorrá ese o cambiale el número antes de mover este.'); return; }
 
+  markUndo('mover el pedido '+o.num+' a '+mk);
   m.orders.splice(idx, 1);
   S.months[mk].orders.push(o);
   schedSave(); buildMonthSelector(); renderAll();
@@ -2271,6 +2397,7 @@ function delOrder(i, num){
   }
   if(idx < 0 || !m.orders[idx]){ notify('Ese pedido ya no existe.'); renderOrders(); renderDashboard(); return; }
   if(!confirm('¿Eliminás el pedido '+m.orders[idx].num+'?')) return;
+  markUndo('borrar el pedido '+m.orders[idx].num);
   m.orders.splice(idx,1);
   schedSave(); renderOrders(); renderDashboard();
 }
@@ -2305,6 +2432,7 @@ function editExpense(i){
   if(amt===null) return;
   const n=parseFlexibleNumber(amt.trim());
   if(n===null||isNaN(n)||n<0){ notify('Monto inválido. Ingresá un número en USD.'); return; }
+  markUndo('editar el gasto '+e.desc);
   e.desc=desc.trim();
   e.amount=n.toFixed(2);
   schedSave(); renderExpenses(); renderDashboard();
@@ -2315,6 +2443,7 @@ function addExpense(){
   const desc=cat==='Otro'?cust:cat;
   const amount=document.getElementById('exp-amt').value;
   if(!desc||!amount){ notify('Completá categoría y monto'); return; }
+  markUndo('agregar el gasto '+desc);
   gm().expenses.push({desc,amount});
   schedSave(); renderExpenses(); renderDashboard();
   document.getElementById('exp-amt').value='';
@@ -2325,6 +2454,7 @@ function delExp(i){
   const m=gm();
   const e=m.expenses[i];
   if(!e) return;
+  markUndo('borrar el gasto '+e.desc);
   m.expenses.splice(i,1);
   schedSave(); renderExpenses(); renderDashboard();
   notify('Gasto eliminado: '+e.desc, 'warn', { label:'Deshacer', fn:()=>{
@@ -2354,6 +2484,7 @@ function copyLastMonth(){
   }
   if(!confirm('¿Copiás '+nuevos.length+' gasto'+(nuevos.length>1?'s':'')+' de '+origen+'?'+
       (repetidos?'\n\n'+repetidos+' ya estaban cargados y se saltean.':''))) return;
+  markUndo('copiar '+nuevos.length+' gastos de '+origen);
   nuevos.forEach(e=>m.expenses.push({...e}));
   schedSave(); renderExpenses(); renderDashboard();
   notify('✓ '+nuevos.length+' gastos copiados de '+origen+
@@ -2656,6 +2787,8 @@ function closeOv(id){ document.getElementById(id).classList.remove('on'); }
 
 // ===== FEDEX BILLING ONLINE REPORT IMPORT (CSV/Excel) =====
 let pendingFxReport = [];
+let lastFxSheetInfo = null;      // para poder volver a dibujar el preview al asignar a mano
+let lastFxDuplicadas = 0;
 
 let lastFxReportSheetInfo = null;
 
@@ -2740,7 +2873,14 @@ function processFxReportRows(rows, sheetInfo){
     // Se busca en todos los meses: el cargo va al mes donde vive el pedido, no al
     // mes que esté seleccionado en pantalla.
     let hit=null, matchSrc='';
-    if(ref){
+    // 0º: si ya se asignó esta guía a mano alguna vez, esa decisión manda sobre
+    // cualquier cruce automático — incluido el caso en que el automático se equivocaba.
+    const recordado = awb ? awbMap()[awbDigits(awb)] : null;
+    if(recordado){
+      hit = todos.find(x=>orderKey(x.o.num)===orderKey(recordado));
+      if(hit) matchSrc='manual';
+    }
+    if(!hit && ref){
       const nr = normalizeOrderNum(ref);
       hit = todos.find(x=>normalizeOrderNum(x.o.num)===nr);
       if(hit) matchSrc='pedido';
@@ -2773,22 +2913,77 @@ function processFxReportRows(rows, sheetInfo){
   }
 
   // Preview
+  lastFxSheetInfo = sheetInfo;
+  lastFxDuplicadas = duplicadas;
+  renderFxPreview();
+}
+
+// Opciones de pedido para asignar una línea a mano, agrupadas por mes y con el
+// tracking al lado, que es lo que permite reconocerlo de un vistazo.
+function orderOptionsHTML(selMes, selNum){
+  const meses = Object.keys(S.months||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort().reverse();
+  let html = `<option value="" ${!selNum?'selected':''}>— sin asignar —</option>`;
+  meses.forEach(mk=>{
+    const arr = (S.months[mk].orders)||[];
+    if(!arr.length) return;
+    html += `<optgroup label="${mk}">`;
+    arr.forEach(o=>{
+      const num = String(o.num==null?'':o.num);
+      const val = mk+'|'+num.replace(/\|/g,'');
+      const sel = (mk===selMes && orderKey(num)===orderKey(selNum)) ? ' selected' : '';
+      const trk = o.tracking ? ' · '+String(o.tracking) : '';
+      const esc = x => String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+      html += `<option value="${esc(val)}"${sel}>${esc(num+trk)}</option>`;
+    });
+    html += `</optgroup>`;
+  });
+  return html;
+}
+
+// Cambia a qué pedido va una línea del reporte. Se recuerda para los próximos imports.
+function setFxMatch(i, valor){
+  const e = pendingFxReport[i];
+  if(!e) return;
+  if(!valor){
+    e.matchedOrderNum=''; e.matchedMonth=''; e.matchSrc='';
+    recordarAsignacion(e.awb, null);
+  } else {
+    const corte = valor.indexOf('|');
+    const mk = valor.slice(0, corte);
+    const num = valor.slice(corte+1);
+    e.matchedOrderNum = num;
+    e.matchedMonth = mk;
+    e.matchSrc = 'manual';
+    recordarAsignacion(e.awb, num);
+  }
+  renderFxPreview();
+}
+
+function renderFxPreview(){
+  const sheetInfo = lastFxSheetInfo;
+  const duplicadas = lastFxDuplicadas;
   const tbody = document.getElementById('fx-report-body');
-  tbody.innerHTML = pendingFxReport.map(e=>{
+  if(!tbody) return;
+  tbody.innerHTML = pendingFxReport.map((e,i)=>{
     const tipoLabel = e.type==='shipping'
       ? '<span class="badge ok" style="font-size:10px">envío</span>'
       : '<span class="badge warn" style="font-size:10px">duties</span>';
     const otroMes = e.matchedOrderNum && e.matchedMonth && e.matchedMonth!==cur;
-    const matchLabel = e.matchedOrderNum
-      ? '<span class="badge ok" style="font-size:10px">'+e.matchedOrderNum+'</span>'+
-        (e.matchSrc==='guia' ? '<div style="font-size:9px;color:var(--text2)">por guía aérea</div>' : '')+
-        (otroMes ? '<div style="font-size:9px;color:var(--info)">va a '+e.matchedMonth+'</div>' : '')
-      : '<span class="badge err" style="font-size:10px">sin pedido</span>';
+    const comoCruzoTxt = e.matchSrc==='manual' ? 'asignado a mano'
+                       : e.matchSrc==='guia'   ? 'por guía aérea'
+                       : e.matchSrc==='pedido' ? 'por número de pedido' : '';
+    const nota = e.matchedOrderNum
+      ? `<div style="font-size:9px;color:${e.matchSrc==='manual'?'var(--info)':'var(--text2)'}">${comoCruzoTxt}${otroMes?' · va a '+e.matchedMonth:''}</div>`
+      : '<div style="font-size:9px;color:var(--err)">sin pedido: se ignora al aplicar</div>';
     return `<tr>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${e.orderRef}${e.byAwbOnly?'<div style="font-size:9px;color:var(--text2)">guía aérea (sin referencia)</div>':''}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${tipoLabel}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:right;font-weight:500">$${e.amountARS.toLocaleString('es-AR')}</td>
-      <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:center">${matchLabel}</td>
+      <td style="padding:3px 7px;border-bottom:1px solid var(--border)">
+        <select style="font-size:11px;max-width:210px" onchange="setFxMatch(${i},this.value)"
+                aria-label="Pedido al que va esta línea">${orderOptionsHTML(e.matchedMonth, e.matchedOrderNum)}</select>
+        ${nota}
+      </td>
     </tr>`;
   }).join('');
 
@@ -2797,10 +2992,13 @@ function processFxReportRows(rows, sheetInfo){
   const nMatch = pendingFxReport.filter(e=>e.matchedOrderNum).length;
   const nPorPedido = pendingFxReport.filter(e=>e.matchSrc==='pedido').length;
   const nPorGuia   = pendingFxReport.filter(e=>e.matchSrc==='guia').length;
+  const nManual    = pendingFxReport.filter(e=>e.matchSrc==='manual').length;
   const sheetHtml = sheetSelectorHTML(sheetInfo, 'fx-report-sheet-sel', 'onFxReportSheetChange');
-  const comoCruzo = nMatch
-    ? ` (${nPorPedido} por número de pedido, ${nPorGuia} por número de guía)`
-    : '';
+  const partes = [];
+  if(nPorPedido) partes.push(nPorPedido+' por número de pedido');
+  if(nPorGuia)   partes.push(nPorGuia+' por número de guía');
+  if(nManual)    partes.push(nManual+' asignadas a mano');
+  const comoCruzo = partes.length ? ' ('+partes.join(', ')+')' : '';
   // Desglose por mes: el reporte cruza meses y cada línea va al mes de su pedido.
   const porMes = {};
   pendingFxReport.forEach(e=>{ if(e.matchedMonth) porMes[e.matchedMonth]=(porMes[e.matchedMonth]||0)+1; });
@@ -2814,7 +3012,7 @@ function processFxReportRows(rows, sheetInfo){
   const aviso = nMatch===0
     ? `<div style="color:var(--err);font-weight:600;margin-top:4px">⚠️ Ninguna línea cruzó con un pedido cargado. Importá primero el Excel de costos: es el que crea los pedidos con su número de tracking.</div>`
     : (nMatch < pendingFxReport.length
-        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas sin pedido: se ignoran al aplicar (suelen ser envíos cuyo mes todavía no cargaste).</div>`
+        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas sin pedido: se ignoran al aplicar. Si alguna es de un pedido que sí tenés, elegilo en la lista de su fila — queda recordado para los próximos reportes.</div>`
         : '');
   document.getElementById('fx-report-lbl').innerHTML =
     `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${detalleMeses}${avisoDup}${aviso}${sheetHtml}`;
@@ -2823,6 +3021,7 @@ function processFxReportRows(rows, sheetInfo){
 
 function applyFedexReport(){
   if(!pendingFxReport.length) return;
+  markUndo('importar el reporte de FedEx');
   const modeEl = document.querySelector('input[name="fxr-mode"]:checked');
   const replaceMode = !modeEl || modeEl.value==='replace';
 
@@ -3228,13 +3427,15 @@ function clearMonthOrders(){
   const m = gm();
   if(!m.orders.length){ notify('Este mes no tiene pedidos.'); return; }
   if(!confirm('¿Borrás los '+m.orders.length+' pedidos de '+cur+'?\n\nLos gastos del mes NO se tocan. Podés volver a crearlos reimportando el CSV de costos.')) return;
+  markUndo('borrar los pedidos de '+cur);
   m.orders = [];
   schedSave(); renderAll();
 }
-function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; delete S.months[cur]; schedSave(); renderAll(); }
+function clearMonth(){ if(!confirm('¿Borrás los datos de '+cur+'?'))return; markUndo('borrar el mes '+cur); delete S.months[cur]; schedSave(); renderAll(); }
 
 function resetCostValues(){
   if(!confirm('¿Limpiar SOLO el costo de productos del mes '+cur+'?\nEnvío, duties, ventas y todo lo demás se mantiene intacto. Después reimportá el CSV de costos.'))return;
+  markUndo('limpiar los costos de producto de '+cur);
   const m=gm();
   m.orders.forEach(o=>{ o.productCostARS=''; });
   schedSave(); renderAll();
@@ -3244,6 +3445,7 @@ function resetCostValues(){
 
 function resetFedexValues(){
   if(!confirm('¿Limpiar SOLO envío y duties del mes '+cur+'?\nProductos, ventas y todo lo demás se mantiene.'))return;
+  markUndo('limpiar envío y duties de '+cur);
   const m=gm();
   m.orders.forEach(o=>{ o.shippingARS=''; o.dutiesARS=''; });
   schedSave(); renderAll();
@@ -3506,6 +3708,7 @@ function applyCostCSV(){
     if(!confirm('Vas a PISAR los pedidos por número.\n\nDe los '+pendingCSV.length+' pedidos del archivo se borran venta, envío, duties y notas, y se recargan desde cero.\nLos pedidos que NO estén en el archivo quedan intactos.\n\n¿Confirmás?')) return;
   }
 
+  markUndo('importar el Excel de costos');
   let added = 0, replaced = 0, updated = 0, enOtroMes = 0;
 
   pendingCSV.forEach(r => {
@@ -3647,6 +3850,7 @@ function processShopifyRows(rows, sheetInfo){
 function applyShopifyCSV(){
   if(!pendingShopify.length) return;
   const m = gm();
+  markUndo('importar las ventas de Shopify');
   let updated = 0, notFound = 0, enOtroMes = 0;
   pendingShopify.forEach(r => {
     const hit = findOrderAnywhere(r.num);
@@ -3677,6 +3881,18 @@ function toB64(file){
 }
 function toggleRaw(id){ const el=document.getElementById(id); el.style.display=el.style.display==='none'?'block':'none'; }
 
+// Ctrl+Z / Ctrl+Y. Si el foco está en un campo de texto se deja pasar, para que
+// funcione el deshacer del propio navegador mientras se escribe.
+document.addEventListener('keydown', e=>{
+  if(!(e.ctrlKey || e.metaKey)) return;
+  const t = e.target || {};
+  const tag = (t.tagName||'').toUpperCase();
+  if(tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT' || t.isContentEditable) return;
+  const k = (e.key||'').toLowerCase();
+  if(k==='z' && !e.shiftKey){ e.preventDefault(); undoLast(); }
+  else if(k==='y' || (k==='z' && e.shiftKey)){ e.preventDefault(); redoLast(); }
+});
+
 // Drag & drop FedEx
 const fxDrop=document.getElementById('fx-drop');
 fxDrop.addEventListener('dragover',e=>{e.preventDefault();fxDrop.style.background='var(--bg2)';});
@@ -3688,6 +3904,10 @@ ld();
 migrateData();
 buildMonthSelector();
 renderAll();
+// Recién desde acá los guardados son cambios del usuario y entran al historial de deshacer.
+_lastSerialized = JSON.stringify(S);
+_undoReady = true;
+refreshUndoUI();
 </script>
 </body>
 </html>
