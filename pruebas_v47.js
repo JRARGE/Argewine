@@ -4,7 +4,7 @@ const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
 
-const APP = path.join(__dirname, 'app', 'argewine_v5.html');
+const APP = path.join(__dirname, 'argewine_v5.html');
 const html = fs.readFileSync(APP, 'utf8');
 const src = html.slice(html.indexOf('<script>', html.indexOf('</script>')) + 8,
                       html.lastIndexOf('</script>'));
