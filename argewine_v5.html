@@ -314,7 +314,7 @@ textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v46</span></h1>
+      <h1><i class="ti ti-wine"></i> Argewine <span style="font-size:11px;font-weight:400;color:var(--text3);vertical-align:middle">v47</span></h1>
       <div class="drive-status disconnected" id="drive-status">
         <i class="ti ti-cloud-off"></i> <span id="drive-status-txt">Sin Drive</span>
       </div>
@@ -1612,12 +1612,93 @@ function awbMap(){
   if(!S.awbMap || typeof S.awbMap !== 'object') S.awbMap = {};
   return S.awbMap;
 }
-function recordarAsignacion(awb, orderNum){
+function recordarAsignacion(awb, nums){
   const a = awbDigits(awb);
   if(!a) return;
   const m = awbMap();
-  if(orderNum) m[a] = String(orderNum);
+  // Una guia puede llevar varios pedidos: se guardan separados por espacio.
+  // Lo viejo guardaba un solo numero suelto y se sigue leyendo igual de bien.
+  const lista = (Array.isArray(nums) ? nums : (nums ? [nums] : []))
+                  .filter(Boolean).map(x=>String(x).trim()).filter(Boolean);
+  if(lista.length) m[a] = lista.join(' ');
   else delete m[a];
+}
+
+// ===== ENVIOS QUE CUBREN VARIOS PEDIDOS, Y REENVIOS =====
+// Todos los numeros de pedido que aparecen en la referencia del remitente.
+// FedEx deja ahi lo que se escribio al despachar: casi siempre uno ("#2580"),
+// a veces varios cuando se juntan pedidos de un mismo cliente en un solo envio
+// para abaratar el flete ("#2899 #2900 #2901 #2902"), y a veces el de un
+// reenvio ("#2924-2"). Antes se limpiaba todo el texto de golpe y
+// "#2899 #2900 #2901 #2902" quedaba como "2899290029012902", que no es ningun
+// pedido: la linea se descartaba y el envio no se cargaba en ninguna parte.
+function refOrderNums(ref){
+  const t = (ref==null ? '' : String(ref));
+  const m = t.match(/\d+(?:-\d+)?/g) || [];
+  return m.filter(x => x.replace(/[^0-9]/g,'').length >= 3);
+}
+
+// Convierte numeros sueltos en pedidos reales, sin repetidos.
+// Si el numero trae sufijo de reenvio (2924-2) y no existe asi, se usa el pedido
+// base: un reenvio es un segundo envio del MISMO pedido y ese costo le pertenece,
+// aunque haga que el pedido muestre menos ganancia. Es la verdad: salio dos veces.
+function fxResolver(todos, nums){
+  const out = [], vistos = new Set();
+  (nums||[]).forEach(n=>{
+    const k = normalizeOrderNum(n);
+    if(!k) return;
+    let hit = todos.find(x=>normalizeOrderNum(x.o.num)===k);
+    if(!hit){
+      const base = k.split('-')[0];
+      if(base && base!==k) hit = todos.find(x=>normalizeOrderNum(x.o.num)===base);
+    }
+    if(!hit) return;
+    const id = hit.mk+'|'+hit.o.num;
+    if(vistos.has(id)) return;
+    vistos.add(id);
+    out.push({ num: hit.o.num, mk: hit.mk });
+  });
+  return out;
+}
+
+// Los pedidos vivos de una linea del reporte, con el mes de cada uno.
+function fxPedidosDe(e){
+  return ((e && e.targets) || []).map(t=>{
+    const mes = (S.months||{})[t.mk || cur];
+    const o = (mes && mes.orders) ? mes.orders.find(x=>x.num===t.num) : null;
+    return o ? { t, o } : null;
+  }).filter(Boolean);
+}
+
+// Reparte el monto de un envio consolidado entre sus pedidos, en proporcion a las
+// botellas de cada uno: si uno lleva 12 y otro 2, no es justo cobrarles lo mismo.
+// Si a algun pedido le falta la cantidad, va en partes iguales: mejor parejo que
+// inventado. El ultimo se lleva el resto para que la suma de exacta.
+function fxRepartir(monto, pedidos){
+  const n = pedidos.length;
+  if(n <= 1) return [monto];
+  const bots = pedidos.map(o => parseInt(o && o.bottles, 10) || 0);
+  const total = bots.reduce((a,b)=>a+b, 0);
+  const porBotellas = total > 0 && bots.every(b => b > 0);
+  const partes = [];
+  let acum = 0;
+  for(let i=0; i<n-1; i++){
+    const p = Math.round((porBotellas ? monto*bots[i]/total : monto/n) * 100) / 100;
+    partes.push(p); acum += p;
+  }
+  partes.push(Math.round((monto - acum) * 100) / 100);
+  return partes;
+}
+
+// matchedOrderNum / matchedMonth siguen existiendo para el resto de la pantalla:
+// son el primero de la lista.
+function fxSync(e){
+  e.matchedOrderNum = e.targets.length ? e.targets[0].num : '';
+  e.matchedMonth    = e.targets.length ? e.targets[0].mk  : '';
+}
+
+function fxEsc(x){
+  return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
 }
 
 // Todos los pedidos de todos los meses, con el mes al que pertenece cada uno.
@@ -2872,23 +2953,24 @@ function processFxReportRows(rows, sheetInfo){
     // 1º por número de pedido; 2º por número de guía contra el tracking del pedido.
     // Se busca en todos los meses: el cargo va al mes donde vive el pedido, no al
     // mes que esté seleccionado en pantalla.
-    let hit=null, matchSrc='';
+    // Una línea puede ir a más de un pedido: hay envíos que juntan varios pedidos
+    // del mismo cliente para abaratar el flete, y ese costo es de todos ellos.
+    let targets=[], matchSrc='';
     // 0º: si ya se asignó esta guía a mano alguna vez, esa decisión manda sobre
     // cualquier cruce automático — incluido el caso en que el automático se equivocaba.
     const recordado = awb ? awbMap()[awbDigits(awb)] : null;
     if(recordado){
-      hit = todos.find(x=>orderKey(x.o.num)===orderKey(recordado));
-      if(hit) matchSrc='manual';
+      targets = fxResolver(todos, String(recordado).split(/[\s,;]+/));
+      if(targets.length) matchSrc='manual';
     }
-    if(!hit && ref){
-      const nr = normalizeOrderNum(ref);
-      hit = todos.find(x=>normalizeOrderNum(x.o.num)===nr);
-      if(hit) matchSrc='pedido';
+    if(!targets.length && ref){
+      targets = fxResolver(todos, refOrderNums(ref));
+      if(targets.length) matchSrc='pedido';
     }
-    if(!hit && awb){
+    if(!targets.length && awb){
       const a = awbDigits(awb);
-      if(a) hit = todos.find(x=>awbDigits(x.o.tracking)===a);
-      if(hit) matchSrc='guia';
+      const hit = a ? todos.find(x=>awbDigits(x.o.tracking)===a) : null;
+      if(hit){ targets=[{ num:hit.o.num, mk:hit.mk }]; matchSrc='guia'; }
     }
 
     pendingFxReport.push({
@@ -2897,8 +2979,10 @@ function processFxReportRows(rows, sheetInfo){
       byAwbOnly: !ref,
       type,
       amountARS: amount,
-      matchedOrderNum: hit ? hit.o.num : '',
-      matchedMonth: hit ? hit.mk : '',
+      targets,
+      multi: targets.length > 1,
+      matchedOrderNum: targets.length ? targets[0].num : '',
+      matchedMonth: targets.length ? targets[0].mk : '',
       matchSrc,
       invoice: invKey ? (r[invKey]||'') : ''
     });
@@ -2920,9 +3004,10 @@ function processFxReportRows(rows, sheetInfo){
 
 // Opciones de pedido para asignar una línea a mano, agrupadas por mes y con el
 // tracking al lado, que es lo que permite reconocerlo de un vistazo.
-function orderOptionsHTML(selMes, selNum){
+function orderOptionsHTML(selMes, selNum, multi){
   const meses = Object.keys(S.months||{}).filter(k=>/^\d{4}-\d{2}$/.test(k)).sort().reverse();
-  let html = `<option value="" ${!selNum?'selected':''}>— sin asignar —</option>`;
+  let html = `<option value="" ${(!multi && !selNum)?'selected':''}>— sin asignar —</option>`
+           + `<option value="__multi"${multi?' selected':''}>— varios pedidos —</option>`;
   meses.forEach(mk=>{
     const arr = (S.months[mk].orders)||[];
     if(!arr.length) return;
@@ -2930,7 +3015,7 @@ function orderOptionsHTML(selMes, selNum){
     arr.forEach(o=>{
       const num = String(o.num==null?'':o.num);
       const val = mk+'|'+num.replace(/\|/g,'');
-      const sel = (mk===selMes && orderKey(num)===orderKey(selNum)) ? ' selected' : '';
+      const sel = (!multi && mk===selMes && orderKey(num)===orderKey(selNum)) ? ' selected' : '';
       const trk = o.tracking ? ' · '+String(o.tracking) : '';
       const esc = x => String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
       html += `<option value="${esc(val)}"${sel}>${esc(num+trk)}</option>`;
@@ -2944,18 +3029,37 @@ function orderOptionsHTML(selMes, selNum){
 function setFxMatch(i, valor){
   const e = pendingFxReport[i];
   if(!e) return;
+  if(valor==='__multi'){ e.multi = true; renderFxPreview(); return; }
+  e.multi = false;
+  e.multiText = null;
   if(!valor){
-    e.matchedOrderNum=''; e.matchedMonth=''; e.matchSrc='';
+    e.targets = []; e.matchSrc='';
     recordarAsignacion(e.awb, null);
   } else {
     const corte = valor.indexOf('|');
-    const mk = valor.slice(0, corte);
-    const num = valor.slice(corte+1);
-    e.matchedOrderNum = num;
-    e.matchedMonth = mk;
+    e.targets = [{ mk: valor.slice(0, corte), num: valor.slice(corte+1) }];
     e.matchSrc = 'manual';
-    recordarAsignacion(e.awb, num);
+    recordarAsignacion(e.awb, [e.targets[0].num]);
   }
+  fxSync(e);
+  renderFxPreview();
+}
+
+// Varios pedidos en una misma línea: se escriben separados por espacios o comas
+// y el envío se reparte entre ellos. Queda recordado por guía aérea, igual que
+// una asignación de a uno, así que el próximo reporte ya lo sabe.
+function setFxMulti(i, texto){
+  const e = pendingFxReport[i];
+  if(!e) return;
+  gm();
+  e.multi = true;
+  e.multiText = String(texto==null?'':texto);
+  const pedidos = e.multiText.split(/[\s,;]+/).filter(Boolean);
+  e.targets = fxResolver(allOrdersIndexed(), pedidos);
+  e.noEncontrados = pedidos.length - e.targets.length;
+  e.matchSrc = e.targets.length ? 'manual' : '';
+  recordarAsignacion(e.awb, e.targets.map(t=>t.num));
+  fxSync(e);
   renderFxPreview();
 }
 
@@ -2968,20 +3072,45 @@ function renderFxPreview(){
     const tipoLabel = e.type==='shipping'
       ? '<span class="badge ok" style="font-size:10px">envío</span>'
       : '<span class="badge warn" style="font-size:10px">duties</span>';
-    const otroMes = e.matchedOrderNum && e.matchedMonth && e.matchedMonth!==cur;
+    const pedidos = fxPedidosDe(e);
+    const nT = pedidos.length;
+    const multi = !!e.multi || nT > 1;
+    const otroMes = nT===1 && e.matchedMonth && e.matchedMonth!==cur;
     const comoCruzoTxt = e.matchSrc==='manual' ? 'asignado a mano'
                        : e.matchSrc==='guia'   ? 'por guía aérea'
                        : e.matchSrc==='pedido' ? 'por número de pedido' : '';
-    const nota = e.matchedOrderNum
-      ? `<div style="font-size:9px;color:${e.matchSrc==='manual'?'var(--info)':'var(--text2)'}">${comoCruzoTxt}${otroMes?' · va a '+e.matchedMonth:''}</div>`
-      : '<div style="font-size:9px;color:var(--err)">sin pedido: se ignora al aplicar</div>';
+    let nota;
+    if(nT > 1){
+      // Un envío que cubre varios pedidos: se muestra cuánto le toca a cada uno,
+      // calculado igual que al aplicar, para que no haya sorpresas.
+      const partes = fxRepartir(e.amountARS, pedidos.map(x=>x.o));
+      const sinBot = pedidos.some(x => !(parseInt(x.o.bottles,10) > 0));
+      const detalle = pedidos.map((x,k)=>`${x.o.num} $${partes[k].toLocaleString('es-AR')}`).join(' · ');
+      nota = `<div style="font-size:9px;color:var(--info)">se reparte entre ${nT} pedidos`+
+             `${sinBot ? ' en partes iguales (faltan botellas)' : ' según las botellas'}: ${fxEsc(detalle)}</div>`;
+    } else if(nT === 1){
+      nota = `<div style="font-size:9px;color:${e.matchSrc==='manual'?'var(--info)':'var(--text2)'}">${comoCruzoTxt}${otroMes?' · va a '+e.matchedMonth:''}</div>`;
+    } else {
+      nota = '<div style="font-size:9px;color:var(--err)">sin pedido: se ignora al aplicar</div>';
+    }
+    if(multi && e.noEncontrados > 0){
+      nota += `<div style="font-size:9px;color:var(--warn)">${e.noEncontrados} de los números que escribiste no son pedidos cargados</div>`;
+    }
+    const valMulti = (e.multiText != null) ? e.multiText : pedidos.map(x=>x.o.num).join(' ');
+    const campoMulti = multi
+      ? `<input type="text" value="${fxEsc(valMulti)}" placeholder="2899 2900 2901 2902"
+                style="font-size:11px;max-width:210px;width:100%;margin-top:3px"
+                onchange="setFxMulti(${i},this.value)"
+                aria-label="Números de los pedidos que cubre este envío, separados por espacios">`
+      : '';
     return `<tr>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${e.orderRef}${e.byAwbOnly?'<div style="font-size:9px;color:var(--text2)">guía aérea (sin referencia)</div>':''}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">${tipoLabel}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border);text-align:right;font-weight:500">$${e.amountARS.toLocaleString('es-AR')}</td>
       <td style="padding:3px 7px;border-bottom:1px solid var(--border)">
         <select style="font-size:11px;max-width:210px" onchange="setFxMatch(${i},this.value)"
-                aria-label="Pedido al que va esta línea">${orderOptionsHTML(e.matchedMonth, e.matchedOrderNum)}</select>
+                aria-label="Pedido al que va esta línea">${orderOptionsHTML(e.matchedMonth, e.matchedOrderNum, multi)}</select>
+        ${campoMulti}
         ${nota}
       </td>
     </tr>`;
@@ -2993,15 +3122,21 @@ function renderFxPreview(){
   const nPorPedido = pendingFxReport.filter(e=>e.matchSrc==='pedido').length;
   const nPorGuia   = pendingFxReport.filter(e=>e.matchSrc==='guia').length;
   const nManual    = pendingFxReport.filter(e=>e.matchSrc==='manual').length;
+  const nReparto   = pendingFxReport.filter(e=>(e.targets||[]).length>1).length;
   const sheetHtml = sheetSelectorHTML(sheetInfo, 'fx-report-sheet-sel', 'onFxReportSheetChange');
   const partes = [];
   if(nPorPedido) partes.push(nPorPedido+' por número de pedido');
   if(nPorGuia)   partes.push(nPorGuia+' por número de guía');
   if(nManual)    partes.push(nManual+' asignadas a mano');
   const comoCruzo = partes.length ? ' ('+partes.join(', ')+')' : '';
+  const avisoReparto = nReparto
+    ? `<div style="color:var(--info);margin-top:4px"><i class="ti ti-arrows-split"></i> ${nReparto} ${nReparto===1?'envío cubre':'envíos cubren'} más de un pedido. El monto se reparte entre ellos según las botellas de cada uno.</div>`
+    : '';
   // Desglose por mes: el reporte cruza meses y cada línea va al mes de su pedido.
   const porMes = {};
-  pendingFxReport.forEach(e=>{ if(e.matchedMonth) porMes[e.matchedMonth]=(porMes[e.matchedMonth]||0)+1; });
+  pendingFxReport.forEach(e=>{
+    (e.targets||[]).forEach(t=>{ if(t.mk) porMes[t.mk]=(porMes[t.mk]||0)+1; });
+  });
   const mesesTxt = Object.keys(porMes).sort().map(mk=>`${porMes[mk]} a ${mk}`).join(' · ');
   const detalleMeses = Object.keys(porMes).length>1
     ? `<div style="color:var(--info);margin-top:4px"><i class="ti ti-calendar"></i> Cada línea se carga en el mes de su pedido: ${mesesTxt}. No hace falta cambiar de mes ni volver a importar.</div>`
@@ -3012,10 +3147,10 @@ function renderFxPreview(){
   const aviso = nMatch===0
     ? `<div style="color:var(--err);font-weight:600;margin-top:4px">⚠️ Ninguna línea cruzó con un pedido cargado. Importá primero el Excel de costos: es el que crea los pedidos con su número de tracking.</div>`
     : (nMatch < pendingFxReport.length
-        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas sin pedido: se ignoran al aplicar. Si alguna es de un pedido que sí tenés, elegilo en la lista de su fila — queda recordado para los próximos reportes.</div>`
+        ? `<div style="color:var(--text2);margin-top:4px">${pendingFxReport.length-nMatch} líneas sin pedido: se ignoran al aplicar. Elegí el pedido en la lista de su fila, o "varios pedidos" si ese envío juntó más de uno — queda recordado para los próximos reportes.</div>`
         : '');
   document.getElementById('fx-report-lbl').innerHTML =
-    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${detalleMeses}${avisoDup}${aviso}${sheetHtml}`;
+    `${pendingFxReport.length} líneas · <span style="color:var(--ok)">${nShip} envíos</span> · <span style="color:var(--warn)">${nDut} duties</span> · ${nMatch} cruzadas${comoCruzo}${avisoReparto}${detalleMeses}${avisoDup}${aviso}${sheetHtml}`;
   document.getElementById('fx-report-preview').style.display='block';
 }
 
@@ -3025,42 +3160,42 @@ function applyFedexReport(){
   const modeEl = document.querySelector('input[name="fxr-mode"]:checked');
   const replaceMode = !modeEl || modeEl.value==='replace';
 
-  // Cada línea se aplica al pedido en el mes donde vive, no en el mes seleccionado:
-  // el reporte de FedEx siempre trae envíos de varios meses.
-  const buscar = e => {
-    const mk = e.matchedMonth || cur;
-    const mes = (S.months||{})[mk];
-    if(!mes || !mes.orders) return null;
-    return mes.orders.find(o=>o.num===e.matchedOrderNum) || null;
-  };
+  // Cada línea se aplica a los pedidos en el mes donde viven, no en el mes
+  // seleccionado: el reporte de FedEx siempre trae envíos de varios meses.
 
   // En modo reemplazar: poner en cero una sola vez por pedido+tipo antes de sumar.
   if(replaceMode){
     const yaCero = new Set();
     pendingFxReport.forEach(e=>{
-      if(!e.matchedOrderNum) return;
-      const o = buscar(e);
-      if(!o) return;
-      const k = (e.matchedMonth||cur)+'|'+o.num+'|'+e.type;
-      if(yaCero.has(k)) return;
-      yaCero.add(k);
-      if(e.type==='shipping') o.shippingARS='0'; else o.dutiesARS='0';
+      fxPedidosDe(e).forEach(({t,o})=>{
+        const k = (t.mk||cur)+'|'+o.num+'|'+e.type;
+        if(yaCero.has(k)) return;
+        yaCero.add(k);
+        if(e.type==='shipping') o.shippingARS='0'; else o.dutiesARS='0';
+      });
     });
   }
 
-  let applied=0, noMatch=0;
+  let applied=0, noMatch=0, repartidas=0;
   const mesesTocados = {};
   pendingFxReport.forEach(e=>{
-    if(!e.matchedOrderNum){ noMatch++; return; }
-    const order = buscar(e);
-    if(!order){ noMatch++; return; }
-    if(e.type==='shipping'){
-      order.shippingARS = ((parseFloat(order.shippingARS)||0)+e.amountARS).toFixed(2);
-    } else {
-      order.dutiesARS = ((parseFloat(order.dutiesARS)||0)+e.amountARS).toFixed(2);
-    }
-    const mk = e.matchedMonth||cur;
-    mesesTocados[mk] = (mesesTocados[mk]||0)+1;
+    const pedidos = fxPedidosDe(e);
+    if(!pedidos.length){ noMatch++; return; }
+    // Un envío que junta pedidos de un mismo cliente se reparte entre ellos:
+    // el costo no es de uno solo, y cargárselo entero a uno arruinaría su margen
+    // y dejaría a los otros gratis.
+    if(pedidos.length>1) repartidas++;
+    const partes = fxRepartir(e.amountARS, pedidos.map(x=>x.o));
+    pedidos.forEach(({t,o}, k)=>{
+      const monto = partes[k];
+      if(e.type==='shipping'){
+        o.shippingARS = ((parseFloat(o.shippingARS)||0)+monto).toFixed(2);
+      } else {
+        o.dutiesARS = ((parseFloat(o.dutiesARS)||0)+monto).toFixed(2);
+      }
+      const mk = t.mk||cur;
+      mesesTocados[mk] = (mesesTocados[mk]||0)+1;
+    });
     applied++;
   });
 
@@ -3069,6 +3204,7 @@ function applyFedexReport(){
   schedSave(); renderAll();
   const detalle = Object.keys(mesesTocados).sort().map(mk=>`   · ${mk}: ${mesesTocados[mk]} líneas`).join('\n');
   notify(`✓ Reporte de FedEx aplicado:\n• ${applied} líneas cargadas a sus pedidos\n`+
+    (repartidas ? `• ${repartidas} ${repartidas===1?'envío cubría':'envíos cubrían'} más de un pedido: el monto se repartió según las botellas\n` : '')+
     (Object.keys(mesesTocados).length ? `\nRepartidas por mes:\n${detalle}\n` : '')+
     `\n• ${noMatch} líneas sin pedido coincidente (se ignoraron)\n\nModo: ${replaceMode?'Reemplazar':'Sumar'}.`);
 }
